@@ -2,6 +2,7 @@
  * CLI and public API for @mentu/monitor-protocol.
  *   serve · mcp · watch · conform · publish · tools
  */
+import { randomBytes } from "node:crypto";
 import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
@@ -28,13 +29,15 @@ export { runConformance, printSummary, SUITE_VERSION } from "./conformance.js";
 
 const USAGE = `monitor-protocol — an epistemic layer over pub/sub
 
-  serve [--port 8130] [--host 127.0.0.1] [--state <file.json>] [--allow-admin] [--retire-after-mute <seconds>]
-        Serve the REST + JSON-RPC + SSE binding under /mp/v0.
+  serve [--port 8130] [--host 127.0.0.1] [--state <file.json>] [--allow-admin[=token]]
+        [--registration-token <tok>] [--retire-after-mute <seconds>]
+        Serve the REST + JSON-RPC + SSE binding under /mp/v0. --allow-admin mints an admin token
+        and prints it; --registration-token makes monitor creation attested.
   mcp   [--state <file.json>]
         Serve the MCP extension ai.mentu/monitors over stdio.
   watch --base <url> --subscription <id> --token <tok> [--catch-up] [--wait 25] [--limit 50] [--once]
         Pull/ack loop, one line per observation. The client for a Claude Code Monitor arm.
-  conform (--self | --base <url>) [--admin] [--json]
+  conform (--self | --base <url>) [--admin[=token]] [--json]
         Run the conformance suite C01-C21 against an implementation.
   publish --base <url> --monitor <id> --token <owner> --type <t> [--subject s] [--tier measured] [--origin probe] [--data '{}']
         Publish one observation.
@@ -49,6 +52,8 @@ function parse(argv: string[]): { cmd: string; flags: Flags } {
   for (let i = cmd ? 1 : 0; i < argv.length; i++) {
     const a = argv[i];
     if (!a.startsWith("--")) continue;
+    const eq = a.indexOf("=");
+    if (eq > 2) { flags[a.slice(2, eq)] = a.slice(eq + 1); continue; }   // --key=value
     const key = a.slice(2);
     const nxt = argv[i + 1];
     if (nxt && !nxt.startsWith("--")) { flags[key] = nxt; i++; } else flags[key] = true;
@@ -61,7 +66,8 @@ const num = (f: Flags, k: string, d: number): number => (typeof f[k] === "string
 function makeService(flags: Flags): MonitorService {
   const store = new MemoryStore(typeof flags.state === "string" ? flags.state : undefined);
   const retire = num(flags, "retire-after-mute", 604800);
-  return new MonitorService(store, { retireAfterMuteDefault: retire });
+  const registrationToken = typeof flags["registration-token"] === "string" ? (flags["registration-token"] as string) : undefined;
+  return new MonitorService(store, { retireAfterMuteDefault: retire, registrationToken });
 }
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
@@ -76,11 +82,16 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   switch (cmd) {
     case "serve": {
       const service = makeService(flags);
-      const server = createHttpServer(service, { allowAdmin: flags["allow-admin"] === true });
+      const allowAdmin = flags["allow-admin"] === true || typeof flags["allow-admin"] === "string";
+      const adminToken = typeof flags["allow-admin"] === "string" ? (flags["allow-admin"] as string)
+        : allowAdmin ? randomBytes(16).toString("base64url") : undefined;
+      const server = createHttpServer(service, { allowAdmin, adminToken });
       const { url } = await listen(server, num(flags, "port", 8130), str(flags, "host", "127.0.0.1"));
       const d = service.discover().body as { supportedVersions: string[]; limits: Record<string, unknown> };
       console.log(`listening ${url}/mp/v0 — protocol ${d.supportedVersions.join(",")}, monitors ${service.store.monitors.size}, head ${service.store.head()}`);
       console.log(`limits ${JSON.stringify(d.limits)}`);
+      if (adminToken) console.log(`admin token ${adminToken}`);
+      if (service.opts.registrationToken) console.log("registration required: monitors created with the token are attested");
       return await new Promise<number>(() => undefined);
     }
     case "mcp": {
@@ -97,17 +108,19 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       const json = flags.json === true;
       if (flags.self) {
         const service = makeService({});
-        const server = createHttpServer(service, { allowAdmin: true });
+        const adminToken = randomBytes(16).toString("base64url");
+        const server = createHttpServer(service, { allowAdmin: true, adminToken });
         const { url, close } = await listen(server, 0);
         try {
-          const r = await runConformance(url, { json, admin: true });
+          const r = await runConformance(url, { json, admin: true, adminToken });
           printSummary(r, json);
           return r.fail ? 1 : 0;
         } finally { await close(); }
       }
       const base = str(flags, "base");
       if (!base) { console.error("conform needs --base <url> or --self"); return 2; }
-      const r = await runConformance(base, { json, admin: flags.admin === true });
+      const r = await runConformance(base, { json, admin: flags.admin === true || typeof flags.admin === "string",
+        adminToken: typeof flags.admin === "string" ? (flags.admin as string) : undefined });
       printSummary(r, json);
       return r.fail ? 1 : 0;
     }

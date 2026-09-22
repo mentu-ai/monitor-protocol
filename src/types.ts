@@ -16,6 +16,10 @@ export interface Monitor {
   id: string; name: string; description?: string | null; version: number; owner: string;
   source: { kind: string; ref?: string; settings?: Record<string, unknown> };
   filter: Filter; horizon: Horizon; capabilities: Capability[];
+  /** Created against a registration token; a precondition for the top of the provenance ladder. */
+  attested?: boolean;
+  /** What a subscriber is granted without the owner or subscribe token. */
+  default_grant?: Capability[];
   cadence: { heartbeat_seconds?: number; schedule?: string; event_driven?: boolean };
   ttl_seconds?: number | null; retire_after_mute_seconds?: number | null;
   budget?: { currency: string; per_day: number } | null; visibility: Visibility;

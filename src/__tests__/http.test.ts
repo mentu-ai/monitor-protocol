@@ -7,8 +7,9 @@ import { MemoryStore } from "../store.js";
 import type { Monitor, PullResult, State } from "../types.js";
 import { watch } from "../watch.js";
 
+const ADMIN = "admin-token-for-tests";
 const service = new MonitorService(new MemoryStore());
-const server = createHttpServer(service, { allowAdmin: true });
+const server = createHttpServer(service, { allowAdmin: true, adminToken: ADMIN });
 const bound = await listen(server, 0);
 const client = new MonitorClient(bound.url);
 after(() => bound.close());
@@ -91,7 +92,7 @@ test("watch prints one line per observation and acks after printing", async () =
   const { monitor, owner_token } = created.body as { monitor: Monitor; owner_token: string };
   const sub = await client.subscribe({ monitor: monitor.id, subscriber: "agent:watcher", capabilities: ["observe"] });
   const { subscription, token } = sub.body as { subscription: { id: string }; token: string };
-  await client.publish(monitor.id, owner_token, { type: "com.example.w", subject: "one", data: { a: 1 } });
+  await client.publish(monitor.id, owner_token, { type: "com.example.w", subject: "one", tier: "measured", origin: "probe", data: { a: 1 } });
 
   const lines: string[] = [];
   await watch({ base: bound.url, subscription: subscription.id, token, once: true, wait: 0, out: l => lines.push(l) });
@@ -103,14 +104,17 @@ test("watch prints one line per observation and acks after printing", async () =
   assert.equal(after.body.observations.length, 0, "watch should have acked what it printed");
 });
 
-test("admin compaction is only reachable when it was enabled", async () => {
+test("the admin endpoints are closed by default and authenticated when open", async () => {
   const closed = new MonitorService(new MemoryStore());
-  const s2 = createHttpServer(closed);
-  const b2 = await listen(s2, 0);
+  const b2 = await listen(createHttpServer(closed), 0);
   try {
-    const r = await fetch(`${b2.url}/mp/v0/admin/compact`, { method: "POST", body: "{}" });
-    assert.equal(r.status, 404);
+    assert.equal((await fetch(`${b2.url}/mp/v0/admin/compact`, { method: "POST", body: "{}" })).status, 404);
+    assert.equal((await fetch(`${b2.url}/mp/v0/admin/snapshot`)).status, 404);
   } finally { await b2.close(); }
-  const ok = await fetch(`${bound.url}/mp/v0/admin/compact`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ upto_seq: 0 }) });
-  assert.equal(ok.status, 200);
+
+  assert.equal((await fetch(`${bound.url}/mp/v0/admin/snapshot`)).status, 401, "the snapshot exports token hashes; it must not be anonymous");
+  const wrong = await fetch(`${bound.url}/mp/v0/admin/compact`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer nope" }, body: JSON.stringify({ upto_seq: 0 }) });
+  assert.equal(wrong.status, 401);
+  const right = await fetch(`${bound.url}/mp/v0/admin/compact`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${ADMIN}` }, body: JSON.stringify({ upto_seq: 0 }) });
+  assert.equal(right.status, 200);
 });

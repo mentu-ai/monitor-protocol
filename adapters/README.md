@@ -5,15 +5,19 @@ specification something the other did not.
 
 | Implementation | Language | Result | Notes |
 |---|---|---|---|
-| Reference server in this package (`monitor-protocol serve`) | TypeScript | **22 PASS · 0 FAIL · 0 SKIP** (`conform --self`) | in-memory log with JSON snapshots, single writer, `--allow-admin` exposes compaction so cursor expiry can be exercised |
-| Atrio's monitor bus | Python 3 (stdlib, SQLite) | **21 PASS · 0 FAIL · 1 SKIP** | a work hub whose bus predates the protocol; the façade presents its existing log through `/mp/v0`. C17 skips: it retains everything |
+| Reference server in this package (`monitor-protocol serve`) | TypeScript | **29 PASS · 0 FAIL · 0 SKIP** (`conform --self`) | in-memory log with JSON snapshots, single writer, `--allow-admin` mints an admin token and exposes compaction so cursor expiry can be exercised |
+| Atrio's monitor bus | Python 3 (stdlib, SQLite) | **28 PASS · 0 FAIL · 1 SKIP** | a work hub whose bus predates the protocol; the façade presents its existing log through `/mp/v0`. C17 skips: it retains everything |
 
-The Python runner was written against the second implementation and passes unmodified against the
-first, which is the cross-implementation evidence the suite exists to produce:
+Both runners are maintained in step, and both servers were written here: they are two readings of
+one specification, not two independent ones. What running both buys is that a change has to satisfy
+two codebases with different storage, and on 2026-09-21 that is exactly how seven fixes were
+checked. Treat agreement between them as a regression gate, not as independent confirmation —
+when they shared a blind spot, they shared it silently until an audit probed the inputs neither
+check sent.
 
 ```bash
-python3 conformance/python/run.py --base http://127.0.0.1:8130 --subjects s-a,s-b,s-c
-# 21 PASS · 0 FAIL · 1 SKIP
+python3 conformance/python/run.py --base http://127.0.0.1:8130 --subjects s-a,s-b,s-c --admin-token <tok>
+# 29 PASS · 0 FAIL · 0 SKIP against the reference server
 ```
 
 ## What the second implementation taught the spec

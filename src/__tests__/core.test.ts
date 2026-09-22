@@ -15,8 +15,8 @@ function fixture() {
   const { monitor, owner_token } = created.body as { monitor: Monitor; owner_token: string };
   return { service, monitor, owner: owner_token };
 }
-function subscribe(service: MonitorService, monitor: string, subscriber: string, capabilities = ["observe"], extra: Record<string, unknown> = {}) {
-  const r = service.subscribe({ monitor, subscriber, capabilities, ...extra }, { bearer: null });
+function subscribe(service: MonitorService, monitor: string, subscriber: string, capabilities = ["observe"], extra: Record<string, unknown> = {}, grant?: string) {
+  const r = service.subscribe({ monitor, subscriber, capabilities, ...extra }, { bearer: grant ?? null });
   assert.equal(r.status, 201, JSON.stringify(r.body));
   const { subscription, token } = r.body as { subscription: Subscription; token: string };
   return { sub: subscription, token };
@@ -54,9 +54,9 @@ test("an agent cannot assert tier src, and the refusal is itself an observation"
 });
 
 test("one holder wins a lease; an expired lease is lost, not stolen silently", async () => {
-  const { service, monitor } = fixture();
-  const a = subscribe(service, monitor.id, "agent:a", ["observe", "act"]);
-  const b = subscribe(service, monitor.id, "agent:b", ["observe", "act"]);
+  const { service, monitor, owner } = fixture();
+  const a = subscribe(service, monitor.id, "agent:a", ["observe", "act"], {}, owner);
+  const b = subscribe(service, monitor.id, "agent:b", ["observe", "act"], {}, owner);
   const first = service.leaseAction(a.sub.id, "claim", { subject: "s1", lease_duration_seconds: 60 }, { bearer: a.token });
   const second = service.leaseAction(b.sub.id, "claim", { subject: "s1", lease_duration_seconds: 60 }, { bearer: b.token });
   assert.equal(first.status, 201);
@@ -178,4 +178,67 @@ test("a committed cursor survives a restart, because a commit that does not is n
   assert.equal(after.observations.length, 0, "already-acked observations were redelivered after a restart");
   // configured + three publishes + subscribed
   assert.equal((second.state(monitor.id, { bearer: null }).body as State).counters.observations, 5);
+});
+
+test("the provenance ceiling cannot be climbed from the request body", () => {
+  const { service, monitor, owner } = fixture();
+  const climb = (body: Record<string, unknown>) => service.monitorAction(monitor.id, "observations", { type: "t.reading", ...body }, { bearer: owner });
+  for (const body of [{ tier: "src" }, { tier: "src", origin: "human" }, { origin: "human", actor: "agent:evil" }, { origin: "agent", verification: "human_verified" }]) {
+    const r = climb(body);
+    assert.ok(r.status >= 400, `${JSON.stringify(body)} was accepted: ${JSON.stringify(r.body)}`);
+    assert.match((r.body as { code: string }).code, /PROVENANCE_CEILING|TIER_NOT_ASSERTABLE/);
+  }
+  const plain = climb({ data: {} });
+  assert.equal(plain.status, 201);
+  const o = (plain.body as { observation: Observation }).observation;
+  assert.equal(o.tier, "unverified");
+  assert.equal(o.verified, "unverified");
+});
+
+test("an attested monitor owned by a person may assert what an open one may not", () => {
+  const service = new MonitorService(new MemoryStore(), { registrationToken: "reg-tok" });
+  const open = service.createMonitor({ id: "open-one", name: "o", horizon: "day", capabilities: ["observe"], visibility: "public", types: ["t.x"] });
+  assert.equal(open.status, 401, "an open create should be refused when the server requires registration");
+  const created = service.createMonitor({ id: "attested", name: "a", owner: "human:rashid", horizon: "day", capabilities: ["observe"], visibility: "public", types: ["t.x"] }, undefined, { bearer: "reg-tok" });
+  assert.equal(created.status, 201);
+  const { monitor, owner_token } = created.body as { monitor: Monitor; owner_token: string };
+  const r = service.monitorAction(monitor.id, "observations", { type: "t.x", tier: "src", origin: "human", data: {} }, { bearer: owner_token });
+  assert.equal(r.status, 201, JSON.stringify(r.body));
+  assert.equal((r.body as { observation: Observation }).observation.tier, "src");
+});
+
+test("head and lag belong to the monitor and the subscription, not to the server", async () => {
+  const { service, monitor, owner } = fixture();
+  const other = service.createMonitor({ id: "noisy", name: "n", horizon: "minute", capabilities: ["observe"], visibility: "public", types: ["t.noise"] });
+  const otherOwner = (other.body as { owner_token: string }).owner_token;
+  const { sub, token } = subscribe(service, monitor.id, "agent:reader");
+  service.monitorAction(monitor.id, "observations", { type: "t.reading", data: {} }, { bearer: owner });
+  const page = (await service.pull(sub.id, {}, { bearer: token })).body as PullResult;
+  service.subAction(sub.id, "ack", { cursor: page.next }, { bearer: token });
+  const caughtUp = (await service.pull(sub.id, {}, { bearer: token })).body as PullResult;
+  assert.equal(caughtUp.lag, 0);
+  for (let i = 0; i < 5; i++) service.monitorAction("noisy", "observations", { type: "t.noise", data: { i } }, { bearer: otherOwner });
+  const after = (await service.pull(sub.id, {}, { bearer: token })).body as PullResult;
+  assert.equal(after.lag, 0, "an unrelated monitor's traffic inflated this subscription's lag");
+  assert.equal(after.head, caughtUp.head, "an unrelated monitor's traffic moved this monitor's head");
+});
+
+test("a filtered subscriber reaches lag zero", async () => {
+  const { service, monitor, owner } = fixture();
+  const { sub, token } = subscribe(service, monitor.id, "agent:narrow", ["observe"], { filter: { types: ["t.reading"] } });
+  service.monitorAction(monitor.id, "observations", { type: "t.reading", data: {} }, { bearer: owner });
+  const page = (await service.pull(sub.id, {}, { bearer: token })).body as PullResult;
+  service.subAction(sub.id, "ack", { cursor: page.next }, { bearer: token });
+  const now = (await service.pull(sub.id, {}, { bearer: token })).body as PullResult;
+  assert.equal(now.lag, 0, "lag counted observations the filter will never deliver");
+});
+
+test("a cursor that is not an integer is refused rather than turned into NaN", async () => {
+  const { service, monitor } = fixture();
+  const { sub, token } = subscribe(service, monitor.id, "agent:nan");
+  const bad = service.subAction(sub.id, "ack", { cursor: "abc" }, { bearer: token });
+  assert.equal(bad.status, 400);
+  const still = await service.pull(sub.id, {}, { bearer: token });
+  assert.equal(still.status, 200);
+  assert.equal((still.body as PullResult).cursor, 0);
 });

@@ -138,7 +138,8 @@
        "independence_unknown",
        "single_actor",
        "stale_source",
-       "no_subscribers"
+       "no_subscribers",
+       "unattested_origin"
       ]
      }
     }

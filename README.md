@@ -82,7 +82,7 @@ npx @mentu/monitor-protocol@latest tools --json
 Fourteen principles, each paid for by an incident in a running system: [`spec/00-principles.md`](spec/00-principles.md).
 The ones people ask about first:
 
-- **A machine cannot assert the top provenance tier.** `origin: agent` with `tier: src` is refused, and the refusal is itself an observation.
+- **A machine cannot assert the top provenance tier.** The top of each ladder requires an attested monitor owned by a human principal; a request body cannot authorise its own claim, and the refusal is itself an observation.
 - **State says what it does not know.** A confidence with a missing input lists the input as missing; it is never defaulted to a number.
 - **Delivery is a queue, not a notification.** Wake-ups (MCP, SSE, a Claude Code Monitor) may be lost; the cursor may not.
 - **Registration is not consumption.** A subscription that never pulls is retired, with a will event, and keeps its cursor for when it returns.
@@ -110,9 +110,10 @@ npx @mentu/monitor-protocol@latest conform --base http://127.0.0.1:8124   # any 
 python3 conformance/python/run.py --base http://127.0.0.1:8124 --subjects a,b,c   # language-independent runner
 ```
 
-Two implementations pass today: this reference server (22/22) and Atrio's bus (21 PASS, 1 SKIP —
-it retains everything, so cursor expiry is not exercisable). The Python runner was written against
-the second and passes unmodified against the first. See [`adapters/`](adapters/README.md).
+Two implementations pass the 29 checks today: this reference server (29/29) and Atrio's bus
+(28 PASS, 1 SKIP — it retains everything, so cursor expiry is not exercisable). Both runners are
+maintained in step and are two readings of one specification, not two independent ones; what they
+give you is that a change must satisfy both. See [`adapters/`](adapters/README.md).
 
 ## Library use
 

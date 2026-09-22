@@ -11,6 +11,15 @@ Defaults follow origin: webhook and probe → `[MEASURED]`, agent → `[UNVERIFI
 asserts `[SRC]` is refused (`400`); what an agent proposes enters `[UNVERIFIED]` and only a person
 promotes it. *(Atrio §10, 2026-09-15.)*
 
+**A guard may not read its verdict out of the body it is judging.** `origin` arrives in the same
+request as the claim it justifies, so it cannot be the thing that authorises the claim. The top of
+each ladder — `origin: human`, `tier: [SRC]`, `human_verified` and `certified` — is reachable only
+from an **attested** monitor: one created against the server's registration token and owned by a
+`human:` principal. An open server still accepts monitors and observations; what it will not do is
+let them claim the top. The actor prefix is a ceiling too: `agent:evil` cannot carry a human origin.
+*(Independent audit of the reference implementation, 2026-09-21: every inflation the conformance
+check did not send was accepted.)*
+
 **The top tier is never reached by defaulting.** Holding a monitor's token is not being a person,
 so an observation published without a stated tier tops out at `[MEASURED]` even when the actor
 string claims a human origin; `[SRC]` must be asserted explicitly, and the refusal above then
@@ -41,11 +50,17 @@ idempotent by `seq`. Wake-ups (MCP `subscriptions/listen`, a Claude Code Monitor
 webhook) sit on top of the queue and never replace it: they may be lost, the cursor may not.
 *(Atrio §4, §21; MCP 2026-07-28 declares its notifications best-effort.)*
 
-## P5. The head is the real head
+## P5. The head is the real head, and the lag is the real lag
 
-The head a feed reports is the maximum of the whole log, never of the filtered slice. A narrow
-filter must not anchor a subscriber to the last event it cared about while its lag grows
-forever. *(Atrio §1.)*
+The head a feed reports is the maximum of **that monitor's** log, never of the server's and never
+of the filtered slice. A narrow filter must not anchor a subscriber to the last event it cared
+about while its lag grows forever. *(Atrio §1.)*
+
+**Lag is what this subscription would receive if it pulled now**, its own filter included — not
+arithmetic over a shared counter. A lag computed against a server-wide head counts traffic the
+subscriber will never be sent, so it never reaches zero and the natural loop *pull until lag is
+zero* does not terminate. *(Measured on the live Atrio board, 2026-09-21: a client caught up on
+every event matching its filter reported a lag of 104, and an observer read it as broken.)*
 
 ## P6. Registration is not consumption
 
@@ -61,6 +76,11 @@ reading.)*
 `observe` reads. `react` annotates and labels. `act` claims with a lease, reports progress,
 completes, releases. What was not declared at registration is refused with `403` naming what was
 done before the refusal. Hiding a control in a client is not a control. *(Atrio §1, §5.)*
+
+**Capabilities are granted, not requested.** A subscriber receives at most the monitor's
+`default_grant` (`observe` unless stated otherwise); its full set requires the owner token or the
+subscribe token the monitor was shared with. A bus that hands `act` to whoever asks lets a stranger
+take the lease a worker needs. *(Audit, 2026-09-21.)*
 
 ## P8. Authority is an attribute of the horizon
 
@@ -103,9 +123,10 @@ An observation, a state snapshot, a monitor version: each is append-only. A corr
 object with `supersedes` pointing at the old one and a mandatory reason. *(Atrio §14; Subtrace
 evidence rules.)*
 
-## P14. Private by default; publishing a state does not publish its sources
+## P14. Private by default; `shared` means shared with someone; publishing a state does not publish its sources
 
-A monitor is `private` unless declared `shared` or `public`. Sharing is a subscription grant
-with its own capability set and filter. A state made public exposes counters and confidence
+A monitor is `private` unless declared `shared` or `public`. **`shared` is a grant, not a synonym
+for public**: the server mints a subscribe token, and without it a shared monitor is neither listed
+nor readable. Sharing is a subscription grant with its own capability set and filter. A state made public exposes counters and confidence
 with their gaps; the observations behind it stay under their own visibility. *(Knowledge-as-
 interface essay, 2026-09-21.)*

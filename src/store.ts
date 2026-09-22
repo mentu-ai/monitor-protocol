@@ -11,6 +11,12 @@ export interface LogEvent {
 }
 export interface MonitorRow {
   id: string; name: string; description: string | null; version: number; owner: string; ownerTokenHash: string;
+  /** Created against a registration token: a precondition for the top of the provenance ladder (P1). */
+  attested: boolean;
+  /** What a subscriber may be granted without the owner token (P7, P14). */
+  defaultGrant: string[];
+  /** When set, subscribing requires this token — what `shared` means (P14). */
+  subscribeTokenHash: string | null;
   source: Record<string, unknown>; filter: Filter; horizon: string; capabilities: string[];
   cadence: Record<string, unknown>; ttl_seconds: number | null; retire_after_mute_seconds: number | null;
   budget: Record<string, unknown> | null; visibility: string; rules: unknown[]; types: string[];
@@ -41,6 +47,8 @@ export interface Snapshot { seq: number; floor: number; events: LogEvent[]; moni
 export class MemoryStore extends EventEmitter {
   seq = 0; floor = 0;
   events: LogEvent[] = [];
+  /** Highest seq per monitor: `head` is the high-water mark of *its* log, never the server's (P5). */
+  private heads = new Map<string, number>();
   monitors = new Map<string, MonitorRow>();
   subscriptions = new Map<string, SubscriptionRow>();
   leases = new Map<string, LeaseRow>();
@@ -51,16 +59,22 @@ export class MemoryStore extends EventEmitter {
   append(ev: Omit<LogEvent, "seq">): LogEvent {
     const row = { ...ev, seq: ++this.seq };
     this.events.push(row);
+    this.heads.set(row.monitor, row.seq);
     this.emit("append", row);
     this.persist();
     return row;
   }
+  /** The server's high-water mark. Not what a subscriber is told: see `headOf`. */
   head(): number { return this.seq; }
+  /** The monitor's own high-water mark (P5). 0 when it has never emitted. */
+  headOf(monitor: string): number { return this.heads.get(monitor) ?? 0; }
   retentionFloor(): number { return this.floor || (this.events[0]?.seq ?? 0); }
-  after(seq: number, limit: number): LogEvent[] {
-    // events are appended in seq order; binary-search the first seq > cursor
+  /** Events strictly after `seq`. */
+  after(seq: number, limit: number): LogEvent[] { return this.fromSeq(seq + 1, limit); }
+  /** Events at or after `seq` — the cursor is the next seq to deliver (spec/04-delivery.md). */
+  fromSeq(seq: number, limit: number): LogEvent[] {
     let lo = 0, hi = this.events.length;
-    while (lo < hi) { const mid = (lo + hi) >> 1; if (this.events[mid].seq > seq) hi = mid; else lo = mid + 1; }
+    while (lo < hi) { const mid = (lo + hi) >> 1; if (this.events[mid].seq >= seq) hi = mid; else lo = mid + 1; }
     return this.events.slice(lo, lo + limit);
   }
   compact(uptoSeq: number): number {
@@ -84,6 +98,8 @@ export class MemoryStore extends EventEmitter {
   }
   load(s: Snapshot): void {
     this.seq = s.seq; this.floor = s.floor ?? 0; this.events = s.events ?? [];
+    this.heads = new Map();
+    for (const e of this.events) this.heads.set(e.monitor, e.seq);
     this.monitors = new Map((s.monitors ?? []).map(m => [m.id, m]));
     this.subscriptions = new Map((s.subscriptions ?? []).map(x => [x.id, x]));
     this.leases = new Map((s.leases ?? []).map(l => [l.subject, l]));

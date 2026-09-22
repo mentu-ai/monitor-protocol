@@ -27,6 +27,14 @@ knows only the base URL and creates its own monitor and subscriptions.
 | C19 | A subscription mute past `retire_after_mute_seconds` is retired and `…subscription_retired` is emitted; re-subscribing keeps the cursor | P6 |
 | C20 | Re-sending an identical `ack` or `claim` returns the prior result | 04 idempotence |
 | C21 | Corrections: a superseding observation carries `data.provenance.supersedes` and the original is unchanged | P13 |
+| C20b | Re-claiming a lease the subscription already holds returns the same lease, not a conflict | 04 idempotence |
+| C22 | After an ack computed from the spec's own definition of the cursor, the acked observations do not come back | P4 |
+| C23 | A wrong bearer, and no bearer, are both `401` on an authenticated endpoint | P7 |
+| C24 | Positive control: a lease claimed by the holder completes successfully | suite rigor |
+| C25 | A subscription caught up reports `lag: 0`, and an unrelated monitor publishing moves neither its `lag` nor its `head` | P5 |
+| C26 | The provenance ceiling holds for every inflation the earlier checks do not send: tier without origin, tier with a declared human origin, a human origin from a non-human actor, an agent self-certifying | P1 |
+| C27 | A cursor that is not an integer is refused, in `ack` and in the pull replay | P3, P11 |
+| C28 | A stranger cannot be granted `act` by asking for it | P7 |
 
 ## Runners
 
@@ -45,5 +53,12 @@ check as `SKIP` with the reason rather than passing it. Because compaction is de
 last. Timing: a one-second lease or mute threshold is checked after 1.3 s against a server with
 millisecond clocks; a server whose timestamps are truncated to whole seconds needs ≥ 2.5 s.
 
-Passing C01–C21 = **conformant v0**. An implementation reports its result as a table in its own
+Passing C01–C28 (C20b included) = **conformant v0**. Twenty-nine checks; C17 may be `SKIP` on a
+server that retains everything, and only that one.
+
+Every negative check above owes a positive control, and the ones added on 2026-09-21 exist because
+a mutation experiment showed the suite passing servers that broke the rule the check is named
+after: a server that stored the cursor and ignored it, a server with no authentication at all, and
+a server whose observations carried values outside the vocabularies. A suite that cannot fail a
+wrong implementation is decorative. An implementation reports its result as a table in its own
 docs with the run date, the suite version and the commit tested.

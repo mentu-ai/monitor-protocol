@@ -13,7 +13,12 @@ const LIST_KEYS = new Set(["types", "sources", "subjects", "actors", "tiers", "o
 /** Heartbeat cadence of the SSE stream; also how fast it notices a client that went away. */
 const STREAM_POLL_SECONDS = 5;
 
-export interface HttpOptions { allowAdmin?: boolean; log?: (line: string) => void }
+export interface HttpOptions {
+  /** Exposes the admin endpoints. They always require `adminToken`; without one they stay closed. */
+  allowAdmin?: boolean;
+  adminToken?: string;
+  log?: (line: string) => void;
+}
 
 const json = (res: ServerResponse, r: Result): void => {
   const body = JSON.stringify(r.body);
@@ -84,6 +89,9 @@ export function createHttpServer(service: MonitorService, opts: HttpOptions = {}
     }
   };
 
+  const adminOk = (bearer: string | null): boolean =>
+    opts.allowAdmin === true && !!opts.adminToken && bearer === opts.adminToken;
+
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
@@ -98,7 +106,11 @@ export function createHttpServer(service: MonitorService, opts: HttpOptions = {}
       if (method === "GET") {
         if (p === "/discover") return json(res, service.discover());
         if (p === "/monitors") return json(res, service.listMonitors(auth));
-        if (p === "/admin/snapshot" && opts.allowAdmin) return json(res, { status: 200, body: service.store.snapshot() });
+        if (p === "/admin/snapshot") {
+          if (!opts.allowAdmin) return json(res, err("NOT_FOUND", "unknown route"));
+          if (!adminOk(auth.bearer)) return json(res, err("UNAUTHORIZED", "the admin endpoints require the admin token"));
+          return json(res, { status: 200, body: service.store.snapshot() });
+        }
         let m = /^\/monitors\/([\w.-]+)$/.exec(p);
         if (m) return json(res, service.getMonitor(m[1], auth));
         m = /^\/monitors\/([\w.-]+)\/state$/.exec(p);
@@ -135,9 +147,11 @@ export function createHttpServer(service: MonitorService, opts: HttpOptions = {}
           }
           return json(res, { status: 200, body: Array.isArray(body) ? out : out[0] });
         }
-        if (p === "/monitors") return json(res, service.createMonitor(body, body.owner as string | undefined));
+        if (p === "/monitors") return json(res, service.createMonitor(body, body.owner as string | undefined, auth));
         if (p === "/subscriptions") return json(res, service.subscribe(body, auth));
-        if (p === "/admin/compact" && opts.allowAdmin) {
+        if (p === "/admin/compact") {
+          if (!opts.allowAdmin) return json(res, err("NOT_FOUND", "unknown route"));
+          if (!adminOk(auth.bearer)) return json(res, err("UNAUTHORIZED", "the admin endpoints require the admin token"));
           const n = service.store.compact(Number(body.upto_seq ?? 0));
           return json(res, { status: 200, body: { compacted: n, retention_floor: service.store.retentionFloor() } });
         }
@@ -162,7 +176,11 @@ async function stream(service: MonitorService, req: IncomingMessage, res: Server
   if (probe.status >= 400) return json(res, probe);
   const last = req.headers["last-event-id"];
   const fromHeader = Array.isArray(last) ? last[0] : last;
-  let cursor = fromHeader != null ? Number(fromHeader) : url.searchParams.has("cursor") ? Number(url.searchParams.get("cursor")) : (probe.body as { cursor: number }).cursor;
+  // `Last-Event-ID` is the last event the client *received*; the cursor is the next to deliver.
+  let cursor = fromHeader != null ? Number(fromHeader) + 1
+    : url.searchParams.has("cursor") ? Number(url.searchParams.get("cursor"))
+    : (probe.body as { cursor: number }).cursor;
+  if (!Number.isSafeInteger(cursor) || cursor < 0) return json(res, err("INVALID", "Last-Event-ID must be an integer"));
   res.writeHead(200, { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-store", Connection: "keep-alive", "X-Accel-Buffering": "no" });
   res.write("retry: 3000\n\n");
   // The client-gone signal is the response closing. A bodyless GET's IncomingMessage emits
@@ -173,7 +191,7 @@ async function stream(service: MonitorService, req: IncomingMessage, res: Server
     const r = await service.pull(sid, { cursor, wait: STREAM_POLL_SECONDS, limit: 100 }, auth);
     if (r.status >= 400) { res.write(`event: error\ndata: ${JSON.stringify(r.body)}\n\n`); break; }
     const page = r.body as { observations: { id: string }[]; next: number; head: number };
-    for (const o of page.observations) { res.write(`id: ${o.id}\nevent: observation\ndata: ${JSON.stringify(o)}\n\n`); cursor = Number(o.id); }
+    for (const o of page.observations) { res.write(`id: ${o.id}\nevent: observation\ndata: ${JSON.stringify(o)}\n\n`); cursor = Number(o.id) + 1; }
     if (!page.observations.length) res.write(`event: heartbeat\ndata: ${JSON.stringify({ head: page.head, cursor })}\n\n`);
   }
   if (!res.writableEnded) res.end();

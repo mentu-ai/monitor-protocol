@@ -185,6 +185,22 @@
   },
   "head": {
    "type": "integer"
+  },
+  "attested": {
+   "type": "boolean",
+   "description": "Created against the server's registration token; a precondition for the top of the provenance ladder (P1)."
+  },
+  "default_grant": {
+   "type": "array",
+   "items": {
+    "type": "string",
+    "enum": [
+     "observe",
+     "react",
+     "act"
+    ]
+   },
+   "description": "What a subscriber holds without the owner or subscribe token."
   }
  },
  "required": [

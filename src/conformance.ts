@@ -15,7 +15,7 @@ const MUTE_WAIT_MS = 1300;
 export type CheckStatus = "PASS" | "FAIL" | "SKIP";
 export interface CheckResult { id: string; status: CheckStatus; note: string }
 export interface SuiteResult { suite: string; version: string; base: string; pass: number; fail: number; skip: number; results: CheckResult[] }
-export interface RunOptions { json?: boolean; admin?: boolean; log?: (line: string) => void }
+export interface RunOptions { json?: boolean; admin?: boolean; adminToken?: string; log?: (line: string) => void }
 
 interface Res<T = Record<string, unknown>> { status: number; body: T }
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
@@ -24,7 +24,7 @@ const say = (v: unknown) => JSON.stringify(v)?.slice(0, 220) ?? String(v);
 class Suite {
   readonly results: CheckResult[] = [];
   readonly tag = String(Date.now()).slice(-6);
-  constructor(readonly base: string, readonly log: (l: string) => void, readonly admin: boolean) {}
+  constructor(readonly base: string, readonly log: (l: string) => void, readonly admin: boolean, readonly adminToken?: string) {}
 
   private async req<T = Record<string, unknown>>(method: string, path: string, body?: unknown, token?: string | null): Promise<Res<T>> {
     const res = await fetch(`${this.base}/mp/v0${path}`, {
@@ -56,8 +56,8 @@ class Suite {
     if (r.status !== 201) throw new Error(`monitor create failed: ${r.status} ${say(r.body)}`);
     return { id: r.body.monitor.id, token: r.body.owner_token };
   }
-  private async subscribe(monitor: string, who: string, capabilities: string[] = ["observe"], extra: Record<string, unknown> = {}) {
-    const r = await this.req<{ subscription: { id: string; cursor: number }; token: string }>("POST", "/subscriptions", { monitor, subscriber: `${who}-${this.tag}`, capabilities, ...extra });
+  private async subscribe(monitor: string, who: string, capabilities: string[] = ["observe"], extra: Record<string, unknown> = {}, grantToken?: string) {
+    const r = await this.req<{ subscription: { id: string; cursor: number }; token: string }>("POST", "/subscriptions", { monitor, subscriber: `${who}-${this.tag}`, capabilities, ...extra }, grantToken);
     if (r.status !== 201) throw new Error(`subscribe failed: ${r.status} ${say(r.body)}`);
     return { id: r.body.subscription.id, token: r.body.token, cursor: r.body.subscription.cursor };
   }
@@ -124,8 +124,8 @@ class Suite {
     const noAct = await this.req<{ code?: string }>("POST", `/subscriptions/${observer.id}/leases/claim`, { subject: subjects[0] }, observer.token);
     this.check("C11", noAct.status === 403 && noAct.body.code === "CAPABILITY_MISSING", `${noAct.status} ${say(noAct.body)}`);
 
-    const wa = await this.subscribe(mon.id, "worker-a", ["observe", "act"]);
-    const wb = await this.subscribe(mon.id, "worker-b", ["observe", "act"]);
+    const wa = await this.subscribe(mon.id, "worker-a", ["observe", "act"], {}, mon.token);
+    const wb = await this.subscribe(mon.id, "worker-b", ["observe", "act"], {}, mon.token);
     const race = await Promise.all([wa, wb].map(w => this.req<{ code?: string; holder?: string }>("POST", `/subscriptions/${w.id}/leases/claim`, { subject: subjects[1], lease_duration_seconds: 60 }, w.token)));
     const codes = race.map(r => r.status).sort();
     const loser = race.find(r => r.status === 409);
@@ -193,11 +193,68 @@ class Suite {
     const sup = (o2.body.observation?.data?.provenance as { supersedes?: { source: string; id: string } } | undefined)?.supersedes;
     this.check("C21", o2.status === 201 && sup?.source === orig.source && sup?.id === orig.id && !!same && (same.data as { value?: number }).value === 41, `${say(sup)} / ${say(same?.data)}`);
 
+    // C22 — the whole of P4: what was acked does not come back. The ack is computed from the
+    // spec's definition of the cursor (next seq to deliver), never echoed from the server.
+    const p4 = await this.subscribe(mon.id, "p4-reader");
+    const before = await this.pull(p4.id, p4.token, { limit: 200 });
+    const seen = before.body.observations.map(o => Number(o.id));
+    const ackTo = seen.length ? Math.max(...seen) + 1 : 0;
+    await this.req("POST", `/subscriptions/${p4.id}/ack`, { cursor: ackTo }, p4.token);
+    const after = await this.pull(p4.id, p4.token, { limit: 200 });
+    const returned = after.body.observations.map(o => Number(o.id)).filter(id => seen.includes(id));
+    this.check("C22", seen.length > 0 && returned.length === 0, `acked ${ackTo}; ${returned.length} acked observations came back: ${say(returned.slice(0, 5))}`);
+
+    // C23 — a wrong credential is refused. Without this the suite passes a server with no auth.
+    const badTok = await this.req<{ code?: string }>("GET", `/subscriptions/${p4.id}/pull`, undefined, "not-the-token");
+    const noTok = await this.req<{ code?: string }>("GET", `/subscriptions/${p4.id}/pull`);
+    this.check("C23", badTok.status === 401 && noTok.status === 401 && badTok.body.code === "UNAUTHORIZED", `wrong token ${badTok.status}, none ${noTok.status}`);
+
+    // C24 — the positive control the lease checks lacked: a completion that succeeds.
+    const done = await this.req<{ ok?: boolean }>("POST", `/subscriptions/${wa.id}/leases/claim`, { subject: subjects[0], lease_duration_seconds: 60 }, wa.token);
+    const completed = await this.req<{ ok?: boolean }>("POST", `/subscriptions/${wa.id}/leases/complete`, { subject: subjects[0], outcome: "done" }, wa.token);
+    this.check("C24", done.status === 201 && completed.status === 200 && completed.body.ok === true, `claim ${done.status}, complete ${completed.status} ${say(completed.body)}`);
+
+    // C25 — head and lag belong to the monitor and the subscription, not to the server.
+    const quiet = await this.subscribe(mon.id, "quiet-reader");
+    const q1 = await this.pull(quiet.id, quiet.token, { limit: 200 });
+    await this.req("POST", `/subscriptions/${quiet.id}/ack`, { cursor: q1.body.observations.length ? Math.max(...q1.body.observations.map(o => Number(o.id))) + 1 : 0 }, quiet.token);
+    const caughtUp = await this.pull(quiet.id, quiet.token, { limit: 1 });
+    const otherMon = await this.monitor("other");
+    await this.publish(otherMon.id, otherMon.token, { subject: "elsewhere" });
+    const afterOther = await this.pull(quiet.id, quiet.token, { limit: 1 });
+    this.check("C25", caughtUp.body.lag === 0 && afterOther.body.lag === 0 && afterOther.body.head === caughtUp.body.head,
+      `lag ${caughtUp.body.lag} → ${afterOther.body.lag}, head ${caughtUp.body.head} → ${afterOther.body.head} after an unrelated monitor published`);
+
+    // C26 — the ceiling, probed with the inputs that do not make the old guard fire.
+    const ceiling: [string, Record<string, unknown>][] = [
+      ["tier src, origin omitted", { tier: "src" }],
+      ["tier src, origin human", { tier: "src", origin: "human" }],
+      ["human origin from a non-human actor", { origin: "human", actor: "agent:evil" }],
+      ["agent self-certifying", { origin: "agent", verification: "human_verified" }],
+    ];
+    const escapes: string[] = [];
+    for (const [label, body] of ceiling) {
+      const r = await this.publish(mon.id, mon.token, body);
+      const o = r.body.observation;
+      const climbed = r.status < 400 && (o?.tier === "src" || o?.origin === "human" || o?.verified === "human_verified" || o?.verified === "certified");
+      if (climbed) escapes.push(`${label} → tier=${o?.tier} origin=${o?.origin} verified=${o?.verified}`);
+    }
+    this.check("C26", escapes.length === 0, say(escapes));
+
+    // C27 — a cursor that is not an integer is refused, not silently turned into NaN.
+    const nan = await this.req<{ code?: string }>("POST", `/subscriptions/${p4.id}/ack`, { cursor: "abc" }, p4.token);
+    const nanPull = await this.pull(p4.id, p4.token, { cursor: "abc" as unknown as number });
+    this.check("C27", nan.status === 400 && nanPull.status === 400, `ack ${nan.status} ${say(nan.body)}, pull ${nanPull.status}`);
+
+    // C28 — capabilities are granted, not requested (P7): a stranger cannot take work.
+    const stranger = await this.req<{ code?: string }>("POST", "/subscriptions", { monitor: mon.id, subscriber: `stranger-${this.tag}`, capabilities: ["observe", "act"] });
+    this.check("C28", stranger.status === 403 && stranger.body.code === "CAPABILITY_MISSING", `${stranger.status} ${say(stranger.body)}`);
+
     // Compaction is destructive, so the expiry check runs last.
     const head = (await this.pull(reader.id, reader.token, { limit: 1 })).body.head;
     let compacted = false;
     if (this.admin) {
-      const c = await this.req<{ retention_floor?: number }>("POST", "/admin/compact", { upto_seq: Math.max(1, head - 1) });
+      const c = await this.req<{ retention_floor?: number }>("POST", "/admin/compact", { upto_seq: Math.max(1, head - 1) }, this.adminToken);
       compacted = c.status === 200;
     }
     const floorNow = (await this.pull(reader.id, reader.token, { limit: 1 })).body.retention_floor;
@@ -213,7 +270,7 @@ class Suite {
 
 export async function runConformance(base: string, opts: RunOptions = {}): Promise<SuiteResult> {
   const log = opts.json ? () => undefined : (opts.log ?? ((l: string) => console.log(l)));
-  const suite = new Suite(base.replace(/\/$/, ""), log, opts.admin === true);
+  const suite = new Suite(base.replace(/\/$/, ""), log, opts.admin === true, opts.adminToken);
   const results = await suite.run();
   return {
     suite: "monitor-protocol-conformance", version: SUITE_VERSION, base,

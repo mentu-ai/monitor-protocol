@@ -10,7 +10,7 @@ Reserved method prefixes (MCP Tasks' pattern): `monitors/`, `feeds/`, `leases/`,
 | `monitors/discover` | none | — | `{supportedVersions, capabilities:{monitors:{listChanged}, feeds:{pull, http, mcp}, leases:{}}, limits, serverInfo, ttlMs}` | — |
 | `monitors/list` | none | `{filter?, visibility?, cursor?}` | `{monitors:[Monitor], nextCursor?, ttlMs, cacheScope}` — `private` monitors only to their owner/bearer | |
 | `monitors/get` | owner or bearer if private | `{id}` | `Monitor` | `NOT_FOUND` |
-| `monitors/create` | owner | `Monitor` minus server fields | `Monitor` + emits `…configured{action:create}` | `INVALID_FILTER`, `UNKNOWN_VOCABULARY`, `DUPLICATE` |
+| `monitors/create` | the registration token, when the server requires one | `Monitor` minus server fields; `registration_token` may travel in the body | `Monitor` + emits `…configured{action:create}` | `INVALID_FILTER`, `UNKNOWN_VOCABULARY`, `DUPLICATE` |
 | `monitors/update` | owner | `{id, patch, reason}` | `Monitor` (version+1) + `…configured{action:update, diff}` | as above |
 | `monitors/pause` · `monitors/resume` · `monitors/retire` | owner | `{id, reason}` | `Monitor` + `…configured` | `NOT_FOUND` |
 | `monitors/state` | anyone the visibility allows | `{id}` | `State` | `NOT_FOUND` |
@@ -30,8 +30,9 @@ Reserved method prefixes (MCP Tasks' pattern): `monitors/`, `feeds/`, `leases/`,
 
 Error object: JSON-RPC `code` in the implementation range `-32000…-32019`, `message`, and
 `data.code` from the closed list: `INVALID_FILTER` · `UNKNOWN_VOCABULARY` · `TIER_NOT_ASSERTABLE`
-· `CAPABILITY_MISSING` · `UNAUTHORIZED` · `NOT_FOUND` · `DUPLICATE` · `CURSOR_BACKWARDS` ·
-`CURSOR_EXPIRED` · `LEASE_HELD` · `LEASE_LOST` · `EVIDENCE_REQUIRED` · `OVER_BUDGET`. `data`
+· `PROVENANCE_CEILING` · `CAPABILITY_MISSING` · `UNAUTHORIZED` · `NOT_FOUND` · `DUPLICATE` ·
+`CURSOR_BACKWARDS` · `CURSOR_EXPIRED` · `LEASE_HELD` · `LEASE_LOST` · `EVIDENCE_REQUIRED` ·
+`OVER_BUDGET`. `data`
 always names what was done before the refusal (`done: []`) when a compound request partially
 applied (Atrio §5).
 
@@ -48,9 +49,10 @@ applied (Atrio §5).
 | `feeds/pull` | `GET /mp/v0/subscriptions/{id}/pull?cursor=&wait=&limit=&…filter` (`Accept: application/cloudevents-batch+json`) |
 | `feeds/ack` · `seek` · `renew` · `retire` | `POST /mp/v0/subscriptions/{id}/{ack|seek|renew|retire}` |
 | `leases/*` | `POST /mp/v0/subscriptions/{id}/leases/{claim|renew|complete|release|reject}` |
-| SSE stream | `GET /mp/v0/subscriptions/{id}/stream` — `id: <seq>` per event, `Last-Event-ID` resumes; the cursor still commits only by `ack` |
+| SSE stream | `GET /mp/v0/subscriptions/{id}/stream` — `id: <seq>` per event; `Last-Event-ID` is the last event **received**, so the stream resumes at that seq plus one; the cursor still commits only by `ack` |
+| admin (optional) | `POST /mp/v0/admin/compact`, `GET /mp/v0/admin/snapshot` — exist only when the server enables them, and **always require an admin token**; the snapshot carries token hashes and must never be anonymous |
 
 HTTP status mapping: `INVALID_FILTER`/`UNKNOWN_VOCABULARY`/`TIER_NOT_ASSERTABLE` → 400 ·
-`UNAUTHORIZED` → 401 · `CAPABILITY_MISSING` → 403 · `NOT_FOUND` → 404 · `DUPLICATE`/
+`UNAUTHORIZED` → 401 · `CAPABILITY_MISSING`/`PROVENANCE_CEILING` → 403 · `NOT_FOUND` → 404 · `DUPLICATE`/
 `CURSOR_BACKWARDS`/`LEASE_HELD`/`LEASE_LOST`/`EVIDENCE_REQUIRED` → 409 · `CURSOR_EXPIRED` → 410 ·
 `OVER_BUDGET` → 429. Bearer token in `Authorization: Bearer`.

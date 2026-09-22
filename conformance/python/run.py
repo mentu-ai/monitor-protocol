@@ -39,8 +39,9 @@ class Client:
 
 
 class Suite:
-    def __init__(self, c, subjects, verbose=True):
+    def __init__(self, c, subjects, verbose=True, admin_token=None):
         self.c, self.subjects, self.results, self.verbose = c, list(subjects), [], verbose
+        self.admin_token = admin_token
         self.tag = str(int(time.time()))[-6:]
 
     # ---- helpers
@@ -63,9 +64,10 @@ class Suite:
         assert st == 201, (st, out)
         return out["monitor"]["id"], out["owner_token"]
 
-    def subscribe(self, mid, who, caps=("observe",), **kw):
+    def subscribe(self, mid, who, caps=("observe",), grant=None, **kw):
         st, out = self.c.req("POST", "/mp/v0/subscriptions",
-                             dict({"monitor": mid, "subscriber": f"{who}-{self.tag}", "capabilities": list(caps)}, **kw))
+                             dict({"monitor": mid, "subscriber": f"{who}-{self.tag}", "capabilities": list(caps)}, **kw),
+                             token=grant)
         assert st == 201, (st, out)
         return out["subscription"]["id"], out["token"], out["subscription"]
 
@@ -135,8 +137,8 @@ class Suite:
         st, out = c.req("POST", f"/mp/v0/subscriptions/{oid}/leases/claim", {"subject": subj}, token=otok2)
         self.check("C11", st == 403 and out.get("code") == "CAPABILITY_MISSING", fail_note=f"{st} {out}")
 
-        a_id, a_tok, _ = self.subscribe(mid, "worker-a", caps=("observe", "act"))
-        b_id, b_tok, _ = self.subscribe(mid, "worker-b", caps=("observe", "act"))
+        a_id, a_tok, _ = self.subscribe(mid, "worker-a", caps=("observe", "act"), grant=otok)
+        b_id, b_tok, _ = self.subscribe(mid, "worker-b", caps=("observe", "act"), grant=otok)
         res = {}
         def go(name, sid_, tok_):
             res[name] = c.req("POST", f"/mp/v0/subscriptions/{sid_}/leases/claim",
@@ -188,14 +190,63 @@ class Suite:
                    and (rejected[-1]["data"].get("payload") or {}).get("raw", {}).get("tier") == "nonsense",
                    fail_note=f"{st} {rej} / {len(rejected)}")
 
-        st, p0 = self.pull(sid, stok)
-        floor = p0.get("retention_floor", 0)
-        if floor and floor > 1:
-            st, ex = self.pull(sid, stok, cursor=0)
-            self.check("C17", st == 410 and ex.get("code") == "CURSOR_EXPIRED" and "retention_floor" in ex and "relist" in ex,
-                       fail_note=f"{st} {ex}")
-        else:
-            self.record("C17", "SKIP", f"server retains everything (retention_floor={floor}); expiry path not exercisable")
+        # C22 — what was acked does not come back; the ack is computed from the spec, not echoed.
+        p4_id, p4_tok, _ = self.subscribe(mid, "p4-reader")
+        st, before = self.pull(p4_id, p4_tok, limit=200)
+        seen = [int(o["id"]) for o in before.get("observations", [])]
+        ack_to = max(seen) + 1 if seen else 0
+        c.req("POST", f"/mp/v0/subscriptions/{p4_id}/ack", {"cursor": ack_to}, token=p4_tok)
+        st, after = self.pull(p4_id, p4_tok, limit=200)
+        came_back = [int(o["id"]) for o in after.get("observations", []) if int(o["id"]) in seen]
+        self.check("C22", bool(seen) and not came_back, f"acked {ack_to}; {len(came_back)} acked observations came back")
+
+        # C23 — a wrong credential is refused; without this a server with no auth passes.
+        st_bad, bad = c.req("GET", f"/mp/v0/subscriptions/{p4_id}/pull", token="not-the-token")
+        st_none, _ = c.req("GET", f"/mp/v0/subscriptions/{p4_id}/pull")
+        self.check("C23", st_bad == 401 and st_none == 401 and bad.get("code") == "UNAUTHORIZED",
+                   f"wrong token {st_bad}, none {st_none}")
+
+        # C24 — the positive control: a completion that succeeds.
+        st_cl, _ = c.req("POST", f"/mp/v0/subscriptions/{a_id}/leases/claim",
+                         {"subject": self.subjects[0], "lease_duration_seconds": 60}, token=a_tok)
+        st_co, co = c.req("POST", f"/mp/v0/subscriptions/{a_id}/leases/complete",
+                          {"subject": self.subjects[0], "outcome": "done"}, token=a_tok)
+        self.check("C24", st_cl in (200, 201) and st_co == 200 and co.get("ok") is True, f"claim {st_cl}, complete {st_co} {co}")
+
+        # C25 — head and lag belong to the monitor and the subscription.
+        q_id, q_tok, _ = self.subscribe(mid, "quiet-reader")
+        st, q1 = self.pull(q_id, q_tok, limit=200)
+        q_seen = [int(o["id"]) for o in q1.get("observations", [])]
+        c.req("POST", f"/mp/v0/subscriptions/{q_id}/ack", {"cursor": (max(q_seen) + 1) if q_seen else 0}, token=q_tok)
+        st, caught = self.pull(q_id, q_tok, limit=1)
+        oid, otok2 = self.monitor("other")
+        self.publish(oid, otok2, subject="elsewhere")
+        st, after_other = self.pull(q_id, q_tok, limit=1)
+        self.check("C25", caught.get("lag") == 0 and after_other.get("lag") == 0 and after_other.get("head") == caught.get("head"),
+                   f"lag {caught.get('lag')} -> {after_other.get('lag')}, head {caught.get('head')} -> {after_other.get('head')}")
+
+        # C26 — the ceiling, probed with the inputs the earlier checks do not send.
+        escapes = []
+        for label, body in (("tier src, origin omitted", {"tier": "src"}),
+                            ("tier src, origin human", {"tier": "src", "origin": "human"}),
+                            ("human origin from a non-human actor", {"origin": "human", "actor": "agent:evil"}),
+                            ("agent self-certifying", {"origin": "agent", "verification": "human_verified"})):
+            st_p, out_p = self.publish(mid, otok, **body)
+            o = (out_p or {}).get("observation") or {}
+            if st_p < 400 and (o.get("tier") == "src" or o.get("origin") == "human"
+                               or o.get("verified") in ("human_verified", "certified")):
+                escapes.append(f"{label} -> tier={o.get('tier')} origin={o.get('origin')} verified={o.get('verified')}")
+        self.check("C26", not escapes, "; ".join(escapes))
+
+        # C27 — a cursor that is not an integer is refused, not turned into NaN.
+        st_n, n_body = c.req("POST", f"/mp/v0/subscriptions/{p4_id}/ack", {"cursor": "abc"}, token=p4_tok)
+        st_np, _ = self.pull(p4_id, p4_tok, cursor="abc")
+        self.check("C27", st_n == 400 and st_np == 400, f"ack {st_n} {n_body}, pull {st_np}")
+
+        # C28 — capabilities are granted, not requested.
+        st_s, s_body = c.req("POST", "/mp/v0/subscriptions",
+                             {"monitor": mid, "subscriber": f"stranger-{self.tag}", "capabilities": ["observe", "act"]})
+        self.check("C28", st_s == 403 and s_body.get("code") == "CAPABILITY_MISSING", f"{st_s} {s_body}")
 
         pid, ptok = self.monitor("private", visibility="private")
         st, lst = c.req("GET", "/mp/v0/monitors")
@@ -227,6 +278,20 @@ class Suite:
         sup = o2.get("observation", {}).get("data", {}).get("provenance", {}).get("supersedes")
         self.check("C21", st == 201 and sup == {"source": orig["source"], "id": orig["id"]} and same
                    and same[0]["data"].get("value") == 41, fail_note=f"{sup} / {same[:1]}")
+        # Compaction is destructive, so the expiry check runs last. A server that can be compacted
+        # exposes it under an admin token; one that retains everything records the skip and says why.
+        st, p0 = self.pull(sid, stok, limit=1)
+        if self.admin_token:
+            c.req("POST", "/mp/v0/admin/compact", {"upto_seq": max(1, p0.get("head", 1) - 1)}, token=self.admin_token)
+        st, p0 = self.pull(sid, stok, limit=1)
+        floor = p0.get("retention_floor", 0)
+        if floor and floor > 1:
+            st, ex = self.pull(sid, stok, cursor=0)
+            self.check("C17", st == 410 and ex.get("code") == "CURSOR_EXPIRED" and "retention_floor" in ex and "relist" in ex,
+                       fail_note=f"{st} {ex}")
+        else:
+            self.record("C17", "SKIP", f"server retains everything (retention_floor={floor}); expiry path not exercisable")
+
         return self.results
 
 
@@ -247,13 +312,14 @@ def main(argv=None):
     ap.add_argument("--atrio", action="store_true", help="create lease subjects through Atrio's /api/entries")
     ap.add_argument("--space", default="crawlio", help="Atrio space to mint subjects in (--atrio only)")
     ap.add_argument("--subjects", help="comma-separated work-item ids the server knows")
+    ap.add_argument("--admin-token", help="token for the optional admin endpoints (C17)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     c = Client(a.base)
     subjects = a.subjects.split(",") if a.subjects else (make_subjects_atrio(c, space=a.space) if a.atrio else [])
     if len(subjects) < 3:
         print("need three lease subjects (--atrio or --subjects)"); return 2
-    res = Suite(c, subjects, verbose=not a.json).run()
+    res = Suite(c, subjects, verbose=not a.json, admin_token=a.admin_token).run()
     fails = [r for r in res if r["status"] == "FAIL"]
     summary = {"suite": "monitor-protocol-conformance", "version": "0.1", "base": a.base,
                "pass": sum(r["status"] == "PASS" for r in res), "fail": len(fails),

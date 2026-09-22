@@ -19,7 +19,9 @@ All vocabularies in this file are closed and validated on write (P11).
 | `ttl_seconds` | int | no | Freshness of an observation for state purposes (MCP `ttlMs` idea, in seconds to match cadence). |
 | `retire_after_mute_seconds` | int | no | Default 604800 (168 h). Subscriptions that do not pull within it are retired (P6). |
 | `budget` | object | no | `{currency, per_day}`. Enforced by the server; a monitor over budget pauses and says so. |
-| `visibility` | enum | yes | `private` (default) · `shared` · `public` (P14). |
+| `visibility` | enum | yes | `private` (default) · `shared` (readable only with the subscribe token the server mints) · `public` (P14). |
+| `attested` | bool | yes | Created against the server's registration token. Only an attested monitor owned by a `human:` principal may reach the top of the provenance ladders (P1). Read-only. |
+| `default_grant` | [enum] | no | What a subscriber may hold without the owner or subscribe token. Subset of `capabilities`; defaults to `["observe"]` (P7). |
 | `rules` | [Rule] | no | `{id, version, when: Filter, then: Action, derived_from: [URI-ref], reason}`; `Action` ∈ `log` · `annotate` · `label` · `escalate:<subscription>` · `run:<ref>` · `notify:human` — mechanical only (P9). Every reaction records `rule.id@version`. |
 | `types` | [string] | no | Observation `type`s this monitor declares it emits (reverse-DNS). |
 | `limits` | object | no | NIP-11 names where meaning matches: `max_subscriptions`, `max_limit`, `default_limit`, `retention_seconds`, `auth_required`. |
@@ -38,7 +40,7 @@ lowercase, ≤ 20 chars, scalar (CloudEvents extension rules).
 | Attribute | CE | Req | Meaning here |
 |---|---|---|---|
 | `id` | core | yes | Unique with `source`; the dedup key. Implementations MAY use the decimal `seq`. |
-| `source` | core | yes | The Monitor `id`. |
+| `source` | core | yes | Identifies the monitor. A URI-reference, **not** the bare id: the reference server emits `monitor:<id>`, and a filter matches the full string. |
 | `type` | core | yes | Reverse-DNS. Protocol-defined types are under `ai.mentu.monitor.` (§5); implementation kinds keep their own prefix (Atrio: `ai.mentu.atrio.entrada.creada`). |
 | `subject` | core | no | What the observation is about (Atrio `genesis`; a file path; a URL). |
 | `time` | core | yes | When observed. |
@@ -92,12 +94,12 @@ Served by `monitors/state` and also emitted as an Observation of type `ai.mentu.
 | `subscriber` | URI-ref (actor) | yes | Person, agent session (`agent:<name>@<session8>`), or another Monitor. |
 | `filter` | Filter | no | Narrows; never renumbers. The cursor is the monitor's `seq`. |
 | `capabilities` | [enum] | yes | Subset of what the grant allows: `observe` · `react` · `act`. Enforced with `CAPABILITY_MISSING` (P7). |
-| `cursor` | int | yes | Committed position = next `seq` to deliver (Kafka *committed position*). |
+| `cursor` | int | yes | Committed position = **next `seq` to deliver**, inclusive (Kafka *committed position*). A pull returns observations with `seq >= cursor`; `next` in a pull result is the last delivered `seq` plus one, which is what a client acks. An implementation that treats the cursor as *last delivered* silently drops one observation per batch for any client written from this line. |
 | `reset_policy` | enum | no | `earliest` · `latest` · `none` (Kafka `auto.offset.reset` names) — what happens on `CURSOR_EXPIRED`. Default `none`: the subscriber must relist. |
 | `protocol` | enum | yes | `pull` (default) · `http` (push, Standard Webhooks headers) · `mcp` (wake-up through `subscriptions/listen`, delivery by pull). |
 | `sink`, `sinkcredential` | URI, object | for `http` | CE-Subscriptions names. |
 | `retire_after_mute_seconds` | int | no | Overrides the monitor's. |
-| `created`, `last_pull`, `active`, `lag` | | | `lag = head − cursor`. |
+| `created`, `last_pull`, `active`, `lag` | | | `lag` is the number of observations this subscription would receive if it pulled now, **its own filter included** (P5). Never `head − cursor` over a shared counter. An implementation may bound the count and say so. |
 
 The bearer token is returned once at creation and stored hashed. Re-creating with the same
 `(monitor, subscriber)` renews the token and keeps the cursor.
