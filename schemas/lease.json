@@ -41,7 +41,9 @@
   "lease_duration_seconds",
   "acquire_time",
   "renew_time",
-  "lease_transitions"
+  "lease_transitions",
+  "attempts",
+  "delivery_count_limit"
  ],
  "additionalProperties": true
 }

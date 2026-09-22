@@ -7,7 +7,7 @@ import { matches, intersectFilters, validateFilter } from "../filter.js";
 import { seqstr } from "../cloudevents.js";
 import type { LeaseRow, LogEvent, MemoryStore, MonitorRow, SubscriptionRow } from "../store.js";
 import type { AuthCtx, Filter, Lease, Monitor, Observation, ProtocolError, PullResult, Result, State, Subscription } from "../types.js";
-import { ATTESTED_ONLY, CAPABILITIES, DEFAULT_TIER, DEFAULT_VERIFICATION, EXTENSION_ID, HORIZONS, HTTP_OF, ID_RE,
+import { ATTESTED_ONLY, CAPABILITIES, ORIGIN_TIER_CEILING, ORIGIN_VERIFICATION_CEILING, EXTENSION_ID, HORIZONS, HTTP_OF, ID_RE,
   ORIGINS, ORIGIN_OF_ACTOR_PREFIX, PROTOCOL_VERSION, PROTOCOLS, PROTO_PREFIX, PROTO_TYPES, PROTO_TYPE_LIST,
   RESET_POLICIES, SOURCE_KINDS, TIERS, TYPE_RE, UNATTESTED_CEILING, VERIFICATIONS, VISIBILITIES,
   type Capability, type ErrorCode, type Gap, type Origin, type Tier, type Verification } from "../vocab.js";
@@ -42,6 +42,21 @@ const asSeq = (v: unknown): number | null => {
   return null;
 };
 const digest = (o: unknown): string => sha(JSON.stringify(o, Object.keys(o as object).sort()));
+
+const RULE_ACTION = /^(log|annotate|label|escalate:.+|run:.+|notify:human)$/;
+/** P11 applies to `rules` as much as to a filter: a rule stored unchecked is a rule nobody enforces. */
+export function validateRules(rules: unknown): string[] {
+  if (rules == null) return [];
+  if (!Array.isArray(rules)) return ["rules must be an array"];
+  const problems: string[] = [];
+  rules.forEach((r, i) => {
+    const rule = r as Record<string, unknown>;
+    if (typeof rule?.id !== "string" || !rule.id) problems.push(`rules[${i}].id is required`);
+    if (rule?.when != null && (typeof rule.when !== "object" || Array.isArray(rule.when))) problems.push(`rules[${i}].when must be a filter object`);
+    if (typeof rule?.then !== "string" || !RULE_ACTION.test(rule.then)) problems.push(`rules[${i}].then must match ${RULE_ACTION.source}`);
+  });
+  return problems;
+}
 
 export function err(code: ErrorCode, message: string, extra: Record<string, unknown> = {}): Result<never> {
   const body: ProtocolError = { code, error: message, done: [], ...extra };
@@ -164,7 +179,7 @@ export class MonitorService {
     extra: Partial<Pick<LogEvent, "tier" | "verification" | "provenance" | "data">> = {}): LogEvent {
     const m = this.store.monitors.get(monitor);
     const tier = extra.tier ?? "measured";
-    const verification = extra.verification ?? DEFAULT_VERIFICATION[origin];
+    const verification = extra.verification ?? ORIGIN_VERIFICATION_CEILING[origin];
     return this.store.append({
       time: now(), monitor, type, subject, actor, tier, origin, verification, horizon: m?.horizon ?? "event",
       data: extra.data ?? { payload, tags: { monitor } },
@@ -214,6 +229,8 @@ export class MonitorService {
     if (!(SOURCE_KINDS as readonly string[]).includes(String(src.kind))) bad.push(`source.kind:${src.kind}`);
     if (bad.length) return err("UNKNOWN_VOCABULARY", `invalid values: ${bad.join(", ")}`, { invalid: bad,
       known: { horizon: HORIZONS, visibility: VISIBILITIES, capabilities: CAPABILITIES, "source.kind": SOURCE_KINDS } });
+    const ruleProblems = validateRules(b.rules);
+    if (ruleProblems.length) return err("UNKNOWN_VOCABULARY", `invalid rules: ${ruleProblems.join(", ")}`, { invalid: ruleProblems });
     const types = asList(b.types);
     for (const t of types) if (!TYPE_RE.test(t)) bad.push(`types:${t}`);
     if (bad.length) return err("UNKNOWN_VOCABULARY", `declared types must be reverse-DNS: ${bad.join(", ")}`, { invalid: bad });
@@ -259,6 +276,10 @@ export class MonitorService {
         if (!v.ok) return err("INVALID_FILTER", `invalid filter: ${v.problems.join(", ")}`, { invalid: v.problems, known_keys: v.known_keys, known_types: v.known_types });
         m.filter = patch.filter as Filter;
       }
+      if ("rules" in patch) {
+        const rp = validateRules(patch.rules);
+        if (rp.length) return err("UNKNOWN_VOCABULARY", `invalid rules: ${rp.join(", ")}`, { invalid: rp });
+      }
       for (const k of ["horizon", "visibility", "retire_after_mute_seconds", "name", "description", "source", "cadence", "ttl_seconds", "budget", "rules", "types"] as const)
         if (k in patch) (m as unknown as Record<string, unknown>)[k] = patch[k];
       m.version += 1; m.updated = now();
@@ -291,10 +312,10 @@ export class MonitorService {
     const declaredOrigin = b.origin == null ? null : String(b.origin);
     const inferred = this.originOf(actor);
     const origin = (declaredOrigin ?? (mayAttest ? inferred : inferred === "human" ? "agent" : inferred)) as Origin;
-    const fallback = ORIGINS.includes(origin) ? DEFAULT_TIER[origin] : "unverified";
+    const fallback = ORIGINS.includes(origin) ? ORIGIN_TIER_CEILING[origin] : "unverified";
     const ceilingTier: Tier = mayAttest ? fallback : (ATTESTED_ONLY.tiers as string[]).includes(fallback) ? UNATTESTED_CEILING.tier : fallback;
     const tier = String(b.tier ?? ceilingTier);
-    const vFallback = ORIGINS.includes(origin) ? DEFAULT_VERIFICATION[origin] : "unverified";
+    const vFallback = ORIGINS.includes(origin) ? ORIGIN_VERIFICATION_CEILING[origin] : "unverified";
     const ceilingVerification: Verification = mayAttest ? vFallback
       : (ATTESTED_ONLY.verifications as string[]).includes(vFallback) ? UNATTESTED_CEILING.verification : vFallback;
     const verification = String(b.verification ?? ceilingVerification);

@@ -99,7 +99,7 @@ The ones people ask about first:
 | [`spec/03-bindings.md`](spec/03-bindings.md) | CloudEvents, MCP extension, Claude Code Monitor, HTTP push, Nostr relay |
 | [`spec/04-delivery.md`](spec/04-delivery.md) | at-least-once, cursor, redelivery, leases, retention, retirement |
 | [`spec/05-conformance.md`](spec/05-conformance.md) | C01–C21 and the two runners |
-| [`schemas/`](schemas/) | JSON Schema 2020-12 for every object |
+| [`schemas/`](schemas/) | JSON Schema 2020-12 for every object — **normative**: where prose, schema and an implementation's types disagree, the schema wins, and C29 validates every object a run receives |
 | [`docs/prior-art.md`](docs/prior-art.md), [`docs/delivery-semantics.md`](docs/delivery-semantics.md), [`docs/decisions.md`](docs/decisions.md) | why each binding was chosen |
 
 ## Conformance
@@ -110,8 +110,8 @@ npx @mentu/monitor-protocol@latest conform --base http://127.0.0.1:8124   # any 
 python3 conformance/python/run.py --base http://127.0.0.1:8124 --subjects a,b,c   # language-independent runner
 ```
 
-Two implementations pass the 29 checks today: this reference server (29/29) and Atrio's bus
-(28 PASS, 1 SKIP — it retains everything, so cursor expiry is not exercisable). Both runners are
+Two implementations pass the 30 checks today: this reference server (30/30) and Atrio's bus
+(29 PASS, 1 SKIP — it retains everything, so cursor expiry is not exercisable). Both runners are
 maintained in step and are two readings of one specification, not two independent ones; what they
 give you is that a change must satisfy both. See [`adapters/`](adapters/README.md).
 

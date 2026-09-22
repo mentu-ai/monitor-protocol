@@ -2,7 +2,7 @@
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "$id": "https://mentu.ai/schemas/monitor-protocol/0.1/error.json",
  "title": "error",
- "description": "Spec 02 error object; HTTP mapping in spec/02-methods.md.",
+ "description": "The REST error body. Over JSON-RPC the same failure travels as `error{code: <numeric>, message, data: <this object>}` (spec/02-methods.md).",
  "type": "object",
  "properties": {
   "code": {

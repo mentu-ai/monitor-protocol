@@ -28,9 +28,12 @@ Reserved method prefixes (MCP Tasks' pattern): `monitors/`, `feeds/`, `leases/`,
 | `notifications/monitors/observation` | server → client (wake-up only) | `{subscription, head}` | — | best-effort; delivery is `feeds/pull` |
 | `notifications/monitors/state` | server → client | `{monitor, as_of_seq}` | — | best-effort |
 
-Error object: JSON-RPC `code` in the implementation range `-32000…-32019`, `message`, and
-`data.code` from the closed list: `INVALID_FILTER` · `UNKNOWN_VOCABULARY` · `TIER_NOT_ASSERTABLE`
-· `PROVENANCE_CEILING` · `CAPABILITY_MISSING` · `UNAUTHORIZED` · `NOT_FOUND` · `DUPLICATE` ·
+Error object, in two shapes for two transports. Over REST the body **is** the error object
+(`schemas/error.json`): `{code, error, done, …}`. Over JSON-RPC it travels as
+`error{code: <numeric, implementation range -32000…-32019>, message, data: <that same object>}`.
+The name `code` therefore means the string over REST and the number over JSON-RPC; `data.code`
+carries the string in both. The closed list: `INVALID_FILTER` · `UNKNOWN_VOCABULARY` · `TIER_NOT_ASSERTABLE`
+· `PROVENANCE_CEILING` · `INVALID` · `CAPABILITY_MISSING` · `UNAUTHORIZED` · `NOT_FOUND` · `DUPLICATE` ·
 `CURSOR_BACKWARDS` · `CURSOR_EXPIRED` · `LEASE_HELD` · `LEASE_LOST` · `EVIDENCE_REQUIRED` ·
 `OVER_BUDGET`. `data`
 always names what was done before the refusal (`done: []`) when a compound request partially

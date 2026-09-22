@@ -89,7 +89,7 @@
  "required": [],
  "additionalProperties": false,
  "patternProperties": {
-  "^#[a-zA-Z_]+$": {
+  "^#[A-Za-z_][A-Za-z0-9_-]*$": {
    "type": "array",
    "items": {
     "type": [

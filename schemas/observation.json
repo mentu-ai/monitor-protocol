@@ -2,7 +2,7 @@
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "$id": "https://mentu.ai/schemas/monitor-protocol/0.1/observation.json",
  "title": "observation",
- "description": "Spec 01 \u00a72. A CloudEvents 1.0 event with the protocol's extension attributes.",
+ "description": "A CloudEvents 1.0 event with the protocol's extension attributes. Objects stay open to extension \u2014 CloudEvents requires it \u2014 while every vocabulary inside them is closed.",
  "type": "object",
  "properties": {
   "specversion": {
@@ -13,7 +13,8 @@
   },
   "source": {
    "type": "string",
-   "format": "uri-reference"
+   "format": "uri-reference",
+   "description": "Identifies the monitor; a URI-reference, not the bare id (the reference server emits `monitor:<id>`). A filter matches this full string."
   },
   "type": {
    "type": "string",
@@ -132,12 +133,21 @@
         }
        ]
       }
-     }
+     },
+     "required": [
+      "origin",
+      "tier",
+      "verification",
+      "actor"
+     ]
     },
     "tags": {
      "type": "object"
     }
-   }
+   },
+   "required": [
+    "provenance"
+   ]
   },
   "data_base64": {
    "type": "string"

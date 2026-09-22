@@ -2,11 +2,13 @@
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "$id": "https://mentu.ai/schemas/monitor-protocol/0.1/monitor.json",
  "title": "monitor",
- "description": "Spec 01 \u00a71. A definition: what is watched, at what rhythm, with what authority.",
+ "description": "A Monitor as served. A create request is a subset: the server supplies version, created, updated, active, head and attested.",
  "type": "object",
  "properties": {
   "id": {
-   "type": "string"
+   "type": "string",
+   "pattern": "^[\\w.-]{2,64}$",
+   "description": "Stable identity; the CloudEvents `source` of every observation it emits is derived from it."
   },
   "name": {
    "type": "string"
@@ -18,10 +20,9 @@
    ]
   },
   "version": {
-   "type": [
-    "integer",
-    "string"
-   ]
+   "type": "integer",
+   "minimum": 1,
+   "description": "Definition version, incremented on update."
   },
   "owner": {
    "type": "string",
@@ -208,9 +209,17 @@
   "name",
   "owner",
   "source",
+  "filter",
   "horizon",
   "capabilities",
-  "visibility"
+  "visibility",
+  "attested",
+  "default_grant",
+  "version",
+  "created",
+  "updated",
+  "active",
+  "head"
  ],
  "additionalProperties": true
 }

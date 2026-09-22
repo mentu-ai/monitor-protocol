@@ -30,7 +30,18 @@ any of them.
   observation validator now checks the vocabularies, not merely presence. 29 checks; C17 may skip.
 - SSE resumes at `Last-Event-ID` plus one and advances its own cursor, and `--flag=value` parses.
 
-Both implementations were moved together: the reference server passes 29 of 29, Atrio 28 with C17
+**The schemas are now normative and enforced.** They were documentation that nothing read: seven
+files referenced by nothing, and twenty disagreements between prose, schema and types, all of them
+live. `schemas/` is now authoritative for the shape of the objects as served, C29 validates every
+object a conformance run receives, and the twenty disagreements were reconciled one by one — the
+prose moved where the implementation was right, the schemas tightened where the prose was right,
+and `live.reason` was cut back to the two values an implementation can actually emit. The validator
+is written here rather than pulled in, covers exactly the keywords the schemas use, and **fails
+closed** on any other, so a schema can never pass by being misunderstood. `rules` are validated on
+write. `DEFAULT_TIER` and `DEFAULT_VERIFICATION` became `ORIGIN_TIER_CEILING` and
+`ORIGIN_VERIFICATION_CEILING`, because the old names read as permissions.
+
+Both implementations were moved together: the reference server passes 30 of 30, Atrio 29 with C17
 skipped because it retains everything.
 
 ## v0.1.0

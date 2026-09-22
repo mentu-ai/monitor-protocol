@@ -38,7 +38,9 @@ export interface Provenance {
 export interface Observation {
   specversion: "1.0"; id: string; source: string; type: string; subject?: string | null; time: string;
   datacontenttype?: string; dataschema?: string;
-  data: Record<string, unknown> & { provenance?: Provenance; tags?: Record<string, unknown> };
+  data: Record<string, unknown> & { provenance: Provenance; tags?: Record<string, unknown> };
+  /** CloudEvents allows either; never both. */
+  data_base64?: string;
   sequence: string; tier: Tier; origin: Origin; verified: Verification; horizon: Horizon; actor: string;
   redelivered?: boolean; traceparent?: string; tracestate?: string;
 }
@@ -58,7 +60,8 @@ export interface State {
 export interface Subscription {
   id: string; monitor: string; subscriber: string; filter: Filter; capabilities: Capability[];
   cursor: number; reset_policy: "earliest" | "latest" | "none"; protocol: "pull" | "http" | "mcp";
-  sink?: string | null; retire_after_mute_seconds?: number | null; created: string;
+  sink?: string | null; sinkcredential?: Record<string, unknown> | null;
+  retire_after_mute_seconds?: number | null; created: string;
   last_pull: string | null; active: boolean; lag: number;
 }
 

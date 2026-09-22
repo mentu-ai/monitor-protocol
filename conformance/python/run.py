@@ -9,7 +9,10 @@ Black-box over the REST binding. Needs three lease subjects (work items the serv
 prints PASS / FAIL / SKIP(reason). Exit code 1 on any FAIL. Stdlib only.
 """
 import argparse
+import glob
 import json
+import os
+import re
 import sys
 import threading
 import time
@@ -38,11 +41,120 @@ class Client:
             return st, raw
 
 
+SUPPORTED_KEYWORDS = {
+    "$schema", "$id", "title", "description", "type", "properties", "required", "additionalProperties",
+    "patternProperties", "propertyNames", "items", "enum", "const", "pattern", "format", "minimum",
+    "maximum", "minItems", "maxItems", "uniqueItems", "anyOf", "oneOf", "allOf", "$ref", "default", "examples",
+}
+JSON_TYPES = {"object": dict, "array": list, "string": str, "number": (int, float), "boolean": bool}
+
+
+class Schemas:
+    """The same fail-closed JSON Schema subset the TypeScript runner uses: a keyword this validator
+    does not implement is an error, never a silent pass."""
+
+    def __init__(self, directory):
+        self.by_name, self.by_id = {}, {}
+        for path in sorted(glob.glob(os.path.join(directory, "*.json"))):
+            doc = json.load(open(path, encoding="utf-8"))
+            self.by_name[os.path.basename(path)[:-5]] = doc
+            if isinstance(doc.get("$id"), str):
+                self.by_id[doc["$id"]] = doc
+
+    def names(self):
+        return sorted(self.by_name)
+
+    def validate(self, name, value):
+        doc = self.by_name.get(name)
+        if doc is None:
+            return [f"(root): no schema named {name}"]
+        return self._check(doc, value, "")
+
+    def _resolve(self, ref):
+        return self.by_id.get(ref) or self.by_name.get(ref.rsplit("/", 1)[-1][:-5] if ref.endswith(".json") else ref)
+
+    def _check(self, schema, v, path):
+        out, at = [], path or "(root)"
+        unknown = [k for k in schema if k not in SUPPORTED_KEYWORDS]
+        if unknown:
+            return [f"{at}: unsupported schema keyword {unknown} — this validator fails closed"]
+        if isinstance(schema.get("$ref"), str):
+            target = self._resolve(schema["$ref"])
+            return [f"{at}: unresolvable $ref {schema['$ref']}"] if target is None else self._check(target, v, path)
+        types = schema.get("type")
+        if types is not None:
+            types = types if isinstance(types, list) else [types]
+            if not any(self._type_ok(t, v) for t in types):
+                out.append(f"{at}: expected {'|'.join(types)}, got {type(v).__name__}")
+        if "const" in schema and v != schema["const"]:
+            out.append(f"{at}: must be {schema['const']!r}")
+        if "enum" in schema and v not in schema["enum"]:
+            out.append(f"{at}: not in the vocabulary: {v!r}")
+        if isinstance(schema.get("pattern"), str) and isinstance(v, str) and not re.search(schema["pattern"], v):
+            out.append(f"{at}: does not match {schema['pattern']}")
+        if isinstance(v, list):
+            if isinstance(schema.get("items"), dict):
+                for i, item in enumerate(v):
+                    out += self._check(schema["items"], item, f"{path}[{i}]")
+            if schema.get("uniqueItems") and len({json.dumps(x, sort_keys=True) for x in v}) != len(v):
+                out.append(f"{at}: items are not unique")
+        if isinstance(v, dict):
+            props = schema.get("properties") or {}
+            for r in schema.get("required") or []:
+                if r not in v:
+                    out.append(f"{at}: missing required property '{r}'")
+            for k, sub in props.items():
+                if k in v:
+                    out += self._check(sub, v[k], f"{path}.{k}" if path else k)
+            patterns = list((schema.get("patternProperties") or {}).items())
+            for k, val in v.items():
+                if k in props:
+                    continue
+                hit = next((sub for rx, sub in patterns if re.search(rx, k)), None)
+                if hit is not None:
+                    out += self._check(hit, val, f"{path}.{k}" if path else k)
+                elif schema.get("additionalProperties") is False:
+                    out.append(f"{at}: unexpected property '{k}'")
+        for key in ("anyOf", "oneOf"):
+            branches = schema.get(key)
+            if isinstance(branches, list):
+                passing = sum(1 for b in branches if not self._check(b, v, path))
+                if key == "anyOf" and passing == 0:
+                    out.append(f"{at}: matches none of the anyOf branches")
+                if key == "oneOf" and passing != 1:
+                    out.append(f"{at}: matches {passing} of the oneOf branches, expected exactly one")
+        for b in schema.get("allOf") or []:
+            out += self._check(b, v, path)
+        return out
+
+    @staticmethod
+    def _type_ok(t, v):
+        if t == "null":
+            return v is None
+        if t == "integer":
+            return isinstance(v, int) and not isinstance(v, bool)
+        if t == "boolean":
+            return isinstance(v, bool)
+        expected = JSON_TYPES.get(t)
+        if expected is None:
+            return False
+        if t == "number":
+            return isinstance(v, expected) and not isinstance(v, bool)
+        return isinstance(v, expected)
+
+
 class Suite:
-    def __init__(self, c, subjects, verbose=True, admin_token=None):
+    def __init__(self, c, subjects, verbose=True, admin_token=None, schemas_dir=None):
         self.c, self.subjects, self.results, self.verbose = c, list(subjects), [], verbose
         self.admin_token = admin_token
         self.tag = str(int(time.time()))[-6:]
+        self.schemas_dir = schemas_dir or os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "schemas")
+        self.seen = []
+
+    def saw(self, schema, label, value):
+        """Keep every object the run received, so C29 can hold the schemas to their word."""
+        if value is not None:
+            self.seen.append((schema, label, value))
 
     # ---- helpers
     def record(self, cid, status, note=""):
@@ -62,6 +174,7 @@ class Suite:
                      "source": {"kind": "shell", "ref": "conformance"}}, **kw)
         st, out = self.c.req("POST", "/mp/v0/monitors", body)
         assert st == 201, (st, out)
+        self.saw("monitor", f"monitor {out['monitor']['id']}", out["monitor"])
         return out["monitor"]["id"], out["owner_token"]
 
     def subscribe(self, mid, who, caps=("observe",), grant=None, **kw):
@@ -69,6 +182,7 @@ class Suite:
                              dict({"monitor": mid, "subscriber": f"{who}-{self.tag}", "capabilities": list(caps)}, **kw),
                              token=grant)
         assert st == 201, (st, out)
+        self.saw("subscription", f"subscription for {who}", out["subscription"])
         return out["subscription"]["id"], out["token"], out["subscription"]
 
     def publish(self, mid, tok, **kw):
@@ -78,7 +192,13 @@ class Suite:
 
     def pull(self, sid, tok, **q):
         qs = "&".join(f"{k}={v}" for k, v in q.items())
-        return self.c.req("GET", f"/mp/v0/subscriptions/{sid}/pull" + (("?" + qs) if qs else ""), token=tok)
+        st, body = self.c.req("GET", f"/mp/v0/subscriptions/{sid}/pull" + (("?" + qs) if qs else ""), token=tok)
+        if st == 200:
+            for o in (body or {}).get("observations", []):
+                self.saw("observation", f"observation {o.get('id')} ({o.get('type')})", o)
+        elif st >= 400:
+            self.saw("error", f"pull error {st}", body)
+        return st, body
 
     # ---- checks
     def run(self):
@@ -278,6 +398,30 @@ class Suite:
         sup = o2.get("observation", {}).get("data", {}).get("provenance", {}).get("supersedes")
         self.check("C21", st == 201 and sup == {"source": orig["source"], "id": orig["id"]} and same
                    and same[0]["data"].get("value") == 41, fail_note=f"{sup} / {same[:1]}")
+        # C29 — the schemas are normative, and this is what makes them so.
+        st29, st_body = c.req("GET", f"/mp/v0/monitors/{mid}/state")
+        self.saw("state", "state", st_body)
+        st_l, l_body = c.req("POST", f"/mp/v0/subscriptions/{b_id}/leases/claim",
+                             {"subject": self.subjects[1], "lease_duration_seconds": 30}, token=b_tok)
+        if st_l < 400:
+            self.saw("lease", "lease", (l_body or {}).get("lease"))
+        st_e, e_body = c.req("POST", "/mp/v0/subscriptions",
+                             {"monitor": mid, "subscriber": "x", "filter": {"typo": [1]}})
+        self.saw("error", "error body", e_body)
+        try:
+            schemas = Schemas(self.schemas_dir)
+            if not schemas.names():
+                raise FileNotFoundError(self.schemas_dir)
+            failures = []
+            for schema, label, value in self.seen:
+                problems = schemas.validate(schema, value)
+                if problems:
+                    failures.append(f"{label}: {'; '.join(problems)}")
+            self.check("C29", not failures, "; ".join(failures[:3]),
+                       f"{len(self.seen)} objects validated against {len(schemas.names())} schemas")
+        except Exception as e:
+            self.record("C29", "SKIP", f"schemas unavailable to this runner ({self.schemas_dir}): {e}")
+
         # Compaction is destructive, so the expiry check runs last. A server that can be compacted
         # exposes it under an admin token; one that retains everything records the skip and says why.
         st, p0 = self.pull(sid, stok, limit=1)
@@ -313,13 +457,14 @@ def main(argv=None):
     ap.add_argument("--space", default="crawlio", help="Atrio space to mint subjects in (--atrio only)")
     ap.add_argument("--subjects", help="comma-separated work-item ids the server knows")
     ap.add_argument("--admin-token", help="token for the optional admin endpoints (C17)")
+    ap.add_argument("--schemas", help="path to the protocol's schemas/ directory (C29)")
     ap.add_argument("--json", action="store_true")
     a = ap.parse_args(argv)
     c = Client(a.base)
     subjects = a.subjects.split(",") if a.subjects else (make_subjects_atrio(c, space=a.space) if a.atrio else [])
     if len(subjects) < 3:
         print("need three lease subjects (--atrio or --subjects)"); return 2
-    res = Suite(c, subjects, verbose=not a.json, admin_token=a.admin_token).run()
+    res = Suite(c, subjects, verbose=not a.json, admin_token=a.admin_token, schemas_dir=a.schemas).run()
     fails = [r for r in res if r["status"] == "FAIL"]
     summary = {"suite": "monitor-protocol-conformance", "version": "0.1", "base": a.base,
                "pass": sum(r["status"] == "PASS" for r in res), "fail": len(fails),

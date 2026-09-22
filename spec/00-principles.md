@@ -5,7 +5,7 @@ learned. An implementation that violates one is non-conformant even if every met
 
 ## P1. The unit of delivery is evidence with provenance, and a machine cannot inflate it
 
-Every observation carries `origin` (`human` | `agent` | `webhook` | `probe`), `tier`
+Every observation carries `origin` (`human` | `agent` | `webhook` | `probe` | `system`), `tier`
 (`[SRC]` · `[MEASURED]` · `[DERIVED]` · `[UNVERIFIED]` · `[FALSIFIED]`) and `verification`.
 Defaults follow origin: webhook and probe → `[MEASURED]`, agent → `[UNVERIFIED]`. An agent that
 asserts `[SRC]` is refused (`400`); what an agent proposes enters `[UNVERIFIED]` and only a person

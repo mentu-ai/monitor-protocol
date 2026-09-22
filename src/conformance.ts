@@ -4,6 +4,7 @@
  * assertions and notes are kept in step.
  */
 import { validateObservation } from "./cloudevents.js";
+import { loadSchemas, type SchemaSet } from "./schema.js";
 import type { Observation, PullResult, State } from "./types.js";
 
 export const SUITE_VERSION = "0.1";
@@ -24,6 +25,9 @@ const say = (v: unknown) => JSON.stringify(v)?.slice(0, 220) ?? String(v);
 class Suite {
   readonly results: CheckResult[] = [];
   readonly tag = String(Date.now()).slice(-6);
+  /** Every object the run saw, kept for C29: the schemas are normative and something must enforce them. */
+  private readonly seen: { schema: string; label: string; value: unknown }[] = [];
+  private schemas: SchemaSet | null = null;
   constructor(readonly base: string, readonly log: (l: string) => void, readonly admin: boolean, readonly adminToken?: string) {}
 
   private async req<T = Record<string, unknown>>(method: string, path: string, body?: unknown, token?: string | null): Promise<Res<T>> {
@@ -35,6 +39,10 @@ class Suite {
     let parsed: unknown = {};
     try { parsed = t ? JSON.parse(t) : {}; } catch { parsed = { raw: t.slice(0, 200) }; }
     return { status: res.status, body: parsed as T };
+  }
+
+  private saw(schema: string, label: string, value: unknown): void {
+    if (value != null) this.seen.push({ schema, label, value });
   }
 
   private record(id: string, status: CheckStatus, note = ""): void {
@@ -54,11 +62,13 @@ class Suite {
       ...extra,
     });
     if (r.status !== 201) throw new Error(`monitor create failed: ${r.status} ${say(r.body)}`);
+    this.saw("monitor", `monitor ${r.body.monitor.id}`, r.body.monitor);
     return { id: r.body.monitor.id, token: r.body.owner_token };
   }
   private async subscribe(monitor: string, who: string, capabilities: string[] = ["observe"], extra: Record<string, unknown> = {}, grantToken?: string) {
     const r = await this.req<{ subscription: { id: string; cursor: number }; token: string }>("POST", "/subscriptions", { monitor, subscriber: `${who}-${this.tag}`, capabilities, ...extra }, grantToken);
     if (r.status !== 201) throw new Error(`subscribe failed: ${r.status} ${say(r.body)}`);
+    this.saw("subscription", `subscription for ${who}`, r.body.subscription);
     return { id: r.body.subscription.id, token: r.body.token, cursor: r.body.subscription.cursor };
   }
   private publish(id: string, token: string, extra: Record<string, unknown> = {}) {
@@ -66,9 +76,12 @@ class Suite {
       type: "test.conformance.reading", subject: "probe-1", data: { value: 1 }, tier: "measured", origin: "probe", ...extra,
     }, token);
   }
-  private pull(sid: string, token: string, q: Record<string, string | number> = {}) {
+  private async pull(sid: string, token: string, q: Record<string, string | number> = {}) {
     const qs = Object.entries(q).map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join("&");
-    return this.req<PullResult & { code?: string; retention_floor?: number; relist?: string; retired?: boolean }>("GET", `/subscriptions/${sid}/pull${qs ? "?" + qs : ""}`, undefined, token);
+    const r = await this.req<PullResult & { code?: string; retention_floor?: number; relist?: string; retired?: boolean }>("GET", `/subscriptions/${sid}/pull${qs ? "?" + qs : ""}`, undefined, token);
+    if (r.status === 200) for (const o of r.body.observations ?? []) this.saw("observation", `observation ${o.id} (${o.type})`, o);
+    else if (r.status >= 400) this.saw("error", `pull error ${r.status}`, r.body);
+    return r;
   }
 
   async run(): Promise<CheckResult[]> {
@@ -249,6 +262,25 @@ class Suite {
     // C28 — capabilities are granted, not requested (P7): a stranger cannot take work.
     const stranger = await this.req<{ code?: string }>("POST", "/subscriptions", { monitor: mon.id, subscriber: `stranger-${this.tag}`, capabilities: ["observe", "act"] });
     this.check("C28", stranger.status === 403 && stranger.body.code === "CAPABILITY_MISSING", `${stranger.status} ${say(stranger.body)}`);
+
+    // C29 — the schemas are normative, and this is what makes them so.
+    const st29 = await this.req<State>("GET", `/monitors/${mon.id}/state`);
+    this.saw("state", "state", st29.body);
+    const lease29 = await this.req<{ lease?: unknown }>("POST", `/subscriptions/${wb.id}/leases/claim`, { subject: subjects[1], lease_duration_seconds: 30 }, wb.token);
+    if (lease29.status < 400) this.saw("lease", "lease", lease29.body.lease);
+    const bad29 = await this.req("POST", "/subscriptions", { monitor: mon.id, subscriber: "x", filter: { typo: [1] } });
+    this.saw("error", "error body", bad29.body);
+    try {
+      this.schemas ??= loadSchemas();
+      const failures: string[] = [];
+      for (const { schema, label, value } of this.seen) {
+        const problems = this.schemas.validate(schema, value);
+        if (problems.length) failures.push(`${label}: ${problems.map(p => `${p.path} ${p.message}`).join("; ")}`);
+      }
+      this.check("C29", failures.length === 0, say(failures.slice(0, 3)), `${this.seen.length} objects validated against ${this.schemas.names().length} schemas`);
+    } catch (e) {
+      this.record("C29", "SKIP", `schemas unavailable to this runner: ${(e as Error).message}`);
+    }
 
     // Compaction is destructive, so the expiry check runs last.
     const head = (await this.pull(reader.id, reader.token, { limit: 1 })).body.head;

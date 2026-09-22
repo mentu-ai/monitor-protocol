@@ -23,14 +23,16 @@ export const GAPS = ["no_event_provenance", "independence_unknown", "single_acto
 export type Gap = (typeof GAPS)[number];
 
 /**
- * What an origin would carry if nothing limited it. These are ceilings to be *lowered* by
- * attestation, never floors to be defaulted up to: see ATTESTED_ONLY below and P1.
+ * The most an origin could carry if it were attested. Named as ceilings because that is what they
+ * are: an unattested monitor is lowered to UNATTESTED_CEILING, and nothing is ever defaulted up to
+ * these values. Reading `ORIGIN_TIER_CEILING.human === "src"` as "a human origin gets src" is the
+ * misreading the rename exists to prevent (P1).
  */
-export const DEFAULT_VERIFICATION: Record<Origin, Verification> = {
+export const ORIGIN_VERIFICATION_CEILING: Record<Origin, Verification> = {
   human: "human_verified", webhook: "machine_verified", probe: "machine_verified",
   system: "machine_verified", agent: "unverified",
 };
-export const DEFAULT_TIER: Record<Origin, Tier> = {
+export const ORIGIN_TIER_CEILING: Record<Origin, Tier> = {
   human: "src", webhook: "measured", probe: "measured", system: "measured", agent: "unverified",
 };
 

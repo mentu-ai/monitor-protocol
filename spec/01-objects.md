@@ -2,7 +2,15 @@
 
 Five objects. Names are working names (vendor prefix `ai.mentu`, to be renamed by the owner).
 Every timestamp is RFC 3339 UTC. Every identifier that crosses a boundary is a URI-reference.
-All vocabularies in this file are closed and validated on write (P11).
+All **vocabularies** in this file are closed and validated on write (P11). The **objects** are
+open: an implementation may add fields, and CloudEvents requires it of observations. A closed
+vocabulary inside an open object is the combination that lets a protocol grow without letting a
+typo pass as a value.
+
+`schemas/` is normative for the shape of these objects **as served**: where this prose, the schemas
+and an implementation's types disagree, the schema wins, and the conformance suite validates every
+object it receives (C29). A request body is a subset of the object it creates — the server supplies
+the rest — so the schemas constrain responses, not requests.
 
 ## 1. Monitor — a definition (what is watched, at what rhythm, with what authority)
 
@@ -11,7 +19,8 @@ All vocabularies in this file are closed and validated on write (P11).
 | `id` | URI-ref | yes | Stable identity matching `[\w.-]{2,64}`; becomes the CloudEvents `source` of every observation it emits (`monitor:<id>` in the reference server). Never changes. |
 | `name`, `description`, `version` | string | yes / no / yes | A2A `AgentCard` names reused; `version` is the definition version, bumped on `update`. |
 | `owner` | URI-ref (actor) | yes | `human:` · `agent:` · `system:` · `hook:` prefix, as Mentu/Atrio actors. |
-| `source` | object | yes | `{kind, ref, settings}`; `kind` ∈ `shell` · `ws` · `http` · `file` · `feed` · `cir` · `formula`. `ref` is what is watched (command, URL, path, another monitor's `id`, a CIR query, a recipe name). |
+| `source` | object | yes | `{kind, ref, settings}`; `kind` ∈ `shell` · `ws` · `http` · `file` · `feed` · `cir` · `formula` · `log` (the default: the
+monitor's own log, written by `monitors/publish`). `ref` is what is watched (command, URL, path, another monitor's `id`, a CIR query, a recipe name). |
 | `filter` | Filter | no | What the monitor keeps from its source (§6). Empty = everything. |
 | `horizon` | enum | yes | `event` · `minute` · `hour` · `day` · `week` · `month`. Authority attribute (P8). |
 | `capabilities` | [enum] | yes | `observe` · `react` · `act`. What the monitor's own reactions may do. |
@@ -75,7 +84,7 @@ Served by `monitors/state` and also emitted as an Observation of type `ai.mentu.
 | `as_of`, `as_of_seq` | timestamp, int | When computed and the last `seq` included. |
 | `covers_until` | timestamp | The last moment the underlying source was actually observed (not when the state was computed). |
 | `head`, `retention_floor` | int | Highest `seq`; lowest `seq` still retained (below it, `CURSOR_EXPIRED`). |
-| `live` | `{value: bool, reason}` | `false` with a reason: `paused` · `retired` · `over_budget` · `source_unreachable` · `mute_since:<ts>` · `circuit_open`. |
+| `live` | `{value: bool, reason}` | `false` with a reason from a closed list: `paused` · `retired`. A further reason arrives with the code that can emit it; a documented reason no implementation reaches is a promise to a reader, not a feature. |
 | `counters` | object | `observations`, `delivered`, `acted`, `subscriptions_active`, `rejected`. |
 | `last` | `{seq, time, type}` | |
 | `ages` | object | Seconds since last observation, since last pull by any subscriber, since last successful source contact. Ages, not counts. |
@@ -133,14 +142,15 @@ is "stop this run" (P10).
 ```json
 { "types": ["ai.mentu.atrio.entrada.*"], "sources": [], "subjects": [], "actors": [],
   "tiers": ["measured","src"], "origins": [], "horizons": [], "since": "2026-09-21T00:00:00Z",
-  "until": null, "limit": 50, "text": "timeout", "#label": ["gate"], "#space": ["checkout"] }
+  "limit": 50, "text": "timeout", "#label": ["gate"], "#space": ["checkout"] }
 ```
 
 - Keys AND; values within an array OR; an array of filter objects OR (NIP-01).
-- `types` accepts a trailing `*` as prefix match. `#<key>` matches `data.tags[<key>]`
+- `types` accepts a trailing `*` as prefix match. A tag key is `#` followed by `[A-Za-z_][A-Za-z0-9_-]*`
+  and matches `data.tags[<key>]`
   (implementations map their own fields; Atrio: `#space`, `#status`, `#label`, `#assignee`).
-- `since`/`until` bound `time`; `limit` caps a pull; `text` is a lowercase substring over
-  `subject` and `data`.
+- `since`/`until` bound `time` and are timestamps when present — omitted, not null; `limit` caps a
+  pull; `text` is a lowercase substring over `subject` and `data`.
 - Unknown key → `INVALID_FILTER` with `known_keys`; a `types` value that is neither a declared
   type nor a valid prefix → `INVALID_FILTER` with `known_types` (P11).
 - Lossless mapping to CloudEvents Subscriptions dialects: `types:[a,b]` ≡ `any:[exact:{type:a},

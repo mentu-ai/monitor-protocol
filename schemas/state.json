@@ -38,7 +38,13 @@
      "type": [
       "string",
       "null"
-     ]
+     ],
+     "enum": [
+      null,
+      "paused",
+      "retired"
+     ],
+     "description": "Closed list: exactly the reasons an implementation can currently emit. A new reason arrives with the code that emits it."
     }
    },
    "required": [
@@ -86,12 +92,32 @@
   },
   "ages": {
    "type": "object",
-   "additionalProperties": {
-    "type": [
-     "integer",
-     "null"
-    ]
-   }
+   "properties": {
+    "since_last_observation_s": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "since_last_pull_s": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    },
+    "since_last_source_contact_s": {
+     "type": [
+      "integer",
+      "null"
+     ]
+    }
+   },
+   "required": [
+    "since_last_observation_s",
+    "since_last_pull_s",
+    "since_last_source_contact_s"
+   ],
+   "description": "Ages, not counts. A quantity that cannot be known is null, never zero."
   },
   "contradictions_open": {
    "type": "integer"
@@ -194,12 +220,16 @@
   "as_of_seq",
   "covers_until",
   "head",
+  "retention_floor",
   "live",
   "counters",
+  "last",
   "ages",
   "contradictions_open",
   "confidence",
-  "computed_from"
+  "computed_from",
+  "ttl_ms",
+  "supersedes"
  ],
  "additionalProperties": true
 }

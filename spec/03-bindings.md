@@ -21,7 +21,7 @@ Presentation to an MCP host that knows nothing of the extension:
 
 | MCP primitive | Mapping |
 |---|---|
-| tools | `monitor_create`, `monitor_configure` (update/pause/resume/retire), `monitor_state`, `monitor_subscribe`, `monitor_pull`, `monitor_ack`, `lease_claim`, `lease_complete` — thin wrappers on the methods; `inputSchema` = the object schemas in `schemas/` |
+| tools | `monitor_discover`, `monitor_list`, `monitor_get`, `monitor_create`, `monitor_configure` (update/pause/resume/retire), `monitor_publish`, `monitor_state`, `monitor_subscribe`, `monitor_pull`, `monitor_ack`, `lease_claim`, `lease_complete`, `lease_release` — thin wrappers on the methods. Their `inputSchema`s are written for a model reading a tool list: flatter than the object schemas, and describing *arguments*, not the objects. `schemas/` stays normative for the objects those calls return. |
 | resources | `monitor://{id}/definition` (the Monitor), `monitor://{id}/state` (the State) with `ttlMs` from `state.ttl_ms`; `resourceSubscriptions` in `subscriptions/listen` gives `notifications/resources/updated` when state changes |
 | `subscriptions/listen` | filter key `monitorObservations: {"subscriptions": ["<id>"]}` acknowledged with `notifications/subscriptions/acknowledged`; the server then sends `notifications/monitors/observation {subscription, head}` tagged with `io.modelcontextprotocol/subscriptionId`. This is a **wake-up**: MCP notifications are best-effort and the server holds no listen state across reconnects, so the client pulls with `feeds/pull` and commits with `feeds/ack`. |
 | MRTR | a `lease_complete` or `monitor_configure` that needs confirmation returns `resultType: "input_required"` with an elicitation; the client retries with `inputResponses`. |
