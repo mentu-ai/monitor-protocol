@@ -1,0 +1,23 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mentu-ai/monitor-protocol",
+  "title": "Monitor Protocol",
+  "description": "Monitors that emit evidence with provenance, keep a computed state and are pulled with a cursor.",
+  "version": "0.1.0",
+  "repository": {
+    "url": "https://github.com/mentu-ai/monitor-protocol",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/mentu-ai/monitor-protocol#readme",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "@mentu/monitor-protocol",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

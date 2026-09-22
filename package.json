@@ -1,0 +1,74 @@
+{
+  "name": "@mentu/monitor-protocol",
+  "version": "0.1.0",
+  "mcpName": "io.github.mentu-ai/monitor-protocol",
+  "description": "An epistemic layer over pub/sub: monitors as enduring daemons that emit evidence with provenance, keep a computed state, and are subscribed to with a durable cursor. CloudEvents envelope, MCP extension door, Nostr-shaped filters, Kafka-shaped delivery.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "bin": {
+    "monitor-protocol": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "spec",
+    "schemas",
+    "docs",
+    "conformance",
+    "server.json",
+    "!dist/__tests__",
+    "!dist/**/*.js.map",
+    "!dist/**/*.d.ts.map",
+    "README.md"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mentu-ai/monitor-protocol.git"
+  },
+  "homepage": "https://github.com/mentu-ai/monitor-protocol#readme",
+  "bugs": {
+    "url": "https://github.com/mentu-ai/monitor-protocol/issues"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "build": "node --eval \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc && node --eval \"const fs=require('fs');const f='dist/index.js';const c=fs.readFileSync(f,'utf8');if(!c.startsWith('#!'))fs.writeFileSync(f,'#!/usr/bin/env node\\n'+c);fs.chmodSync(f,0o755)\"",
+    "start": "node dist/index.js serve",
+    "test": "npm run build && node --test dist/__tests__/*.test.js",
+    "typecheck": "tsc --noEmit",
+    "conform": "node dist/index.js conform --self",
+    "check:release": "node scripts/check-release.mjs",
+    "verify:release": "npm run typecheck && npm test && npm run conform && npm run check:release",
+    "prepublishOnly": "npm run verify:release"
+  },
+  "keywords": [
+    "monitor",
+    "monitors",
+    "evidence",
+    "provenance",
+    "pub-sub",
+    "cloudevents",
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "epistemic",
+    "observability",
+    "agents",
+    "claude",
+    "mentu"
+  ],
+  "author": "Mentu AI (https://github.com/mentu-ai)",
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.5",
+    "typescript": "^5.9.3"
+  }
+}

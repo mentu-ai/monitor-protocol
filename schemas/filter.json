@@ -1,0 +1,102 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://mentu.ai/schemas/monitor-protocol/0.1/filter.json",
+ "title": "filter",
+ "description": "Nostr-shaped filter: AND across keys, OR within arrays; an array of filters is OR. Unknown key is INVALID_FILTER.",
+ "type": "object",
+ "properties": {
+  "types": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   },
+   "description": "OR within; trailing * is a prefix"
+  },
+  "sources": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "subjects": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "actors": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "tiers": {
+   "type": "array",
+   "items": {
+    "type": "string",
+    "enum": [
+     "src",
+     "measured",
+     "derived",
+     "unverified",
+     "falsified"
+    ]
+   }
+  },
+  "origins": {
+   "type": "array",
+   "items": {
+    "type": "string",
+    "enum": [
+     "human",
+     "agent",
+     "webhook",
+     "probe",
+     "system"
+    ]
+   }
+  },
+  "horizons": {
+   "type": "array",
+   "items": {
+    "type": "string",
+    "enum": [
+     "event",
+     "minute",
+     "hour",
+     "day",
+     "week",
+     "month"
+    ]
+   }
+  },
+  "since": {
+   "type": "string",
+   "format": "date-time"
+  },
+  "until": {
+   "type": "string",
+   "format": "date-time"
+  },
+  "limit": {
+   "type": "integer",
+   "minimum": 1
+  },
+  "text": {
+   "type": "string"
+  }
+ },
+ "required": [],
+ "additionalProperties": false,
+ "patternProperties": {
+  "^#[a-zA-Z_]+$": {
+   "type": "array",
+   "items": {
+    "type": [
+     "string",
+     "null"
+    ]
+   }
+  }
+ }
+}

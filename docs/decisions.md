@@ -1,0 +1,21 @@
+# Decisions (append-only)
+
+| Date | Decision | Why | Source |
+|---|---|---|---|
+| 2026-09-21 | Adopt, do not invent: CloudEvents envelope, MCP as client door, Nostr filter grammar, Kafka/K8s delivery vocabulary; own only the five objects and the epistemic rules | the mechanics exist elsewhere and will be compared; the novelty is the epistemic layer | `prior-art.md`, `delivery-semantics.md` |
+| 2026-09-21 | CloudEvents `id` stays the dedup key; ordering is the `sequence` extension, zero-padded to 20 digits | CE `sequence` is a String comparable only within a `source`; `id`+`source` is CE's dedup rule | `prior-art.md` §1 |
+| 2026-09-21 | Per-monitor `sequence` must be strictly increasing, not dense | Atrio's log is one global sequence; a monitor sees a subsequence with gaps | `atrio-bus-map.md` §7 |
+| 2026-09-21 | Reserve method prefixes `monitors/`, `feeds/`, `leases/`, `notifications/monitors/`; never `subscriptions/` or `tasks/` | MCP core owns `subscriptions/listen`; Tasks reserves `tasks/` | `prior-art.md` §4 |
+| 2026-09-21 | Delivery is at-least-once with manual commit only; no auto-commit mode | Kafka's auto-commit default leaks toward at-most-once | `delivery-semantics.md` |
+| 2026-09-21 | Wake-ups (MCP listen, Claude Code Monitor, webhooks) are best-effort and sit above the cursor; the cursor is the guarantee | MCP 2026-07-28 removed stream resumability and declares notifications best-effort | `prior-art.md` §4 |
+| 2026-09-21 | `origin: agent` may never carry `tier: src` (`TIER_NOT_ASSERTABLE`), and a refusal is emitted as an observation | Atrio §10 and §9, paid for in the first live week | `00-principles.md` P1, P2 |
+| 2026-09-21 | State lists missing inputs and gaps; `confidence.value` is `null` until every input is present | `?? 0` turns a missing measurement into a confident one (Subtrace scar 722) | P3 |
+| 2026-09-21 | Monitor (definition) and Subscription (consumer) are separate objects | Atrio held both in one row; a second consumer of the same monitor was impossible | `atrio-bus-map.md` §7 |
+| 2026-09-21 | A `monitors/publish` method exists for external producers | shell/webhook monitors need a write path; the spec had none | implementation of C04/C16 |
+| 2026-09-21 | Lease vocabulary: Kubernetes Lease fields plus Kafka share-group outcomes (`release`, `reject`, `delivery_count_limit`) | both are current, primary-source vocabularies for exactly this | `delivery-semantics.md` |
+| 2026-09-21 | Working names (`ai.mentu` vendor prefix, "Monitor Protocol") until the owner names the protocol and its public home | owner decision pending | intent §Open questions |
+| 2026-09-21 | Timestamps carry milliseconds (RFC 3339 fractional seconds) | a deadline in seconds cannot be decided from a timestamp truncated to seconds: a 1 s lease expired early and a 1 s mute threshold never quite late. Found by conformance C19 against the reference server. | `spec/04-delivery.md`; reference server |
+| 2026-09-21 | The top provenance tier is never reached by defaulting; `src` must be asserted explicitly | holding a monitor's token is not being a person. A machine publishing under a `human:` owner silently obtained `[SRC]`; found by the reference implementation's own test. | P1 |
+| 2026-09-21 | An SSE stream ends on the response closing, never on the request stream ending | a bodyless GET's request stream ends immediately, which cut every stream off after its first batch. Found by the HTTP test. | `spec/03-bindings.md` |
+| 2026-09-21 | Monitor ids match `[\w.-]{2,64}` | inherited from the first implementation; short ids collide with path segments and read as typos. | `spec/01-objects.md` |
+| 2026-09-21 | The MCP extension id travels under `experimental` until an SDK carries `extensions` | the installed SDK's `ServerCapabilities` has no `extensions` field; the name in the spec is the one that matters. | `spec/03-bindings.md`, `docs/ARCHITECTURE.md` |

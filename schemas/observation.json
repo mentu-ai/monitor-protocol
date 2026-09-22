@@ -1,0 +1,231 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://mentu.ai/schemas/monitor-protocol/0.1/observation.json",
+ "title": "observation",
+ "description": "Spec 01 \u00a72. A CloudEvents 1.0 event with the protocol's extension attributes.",
+ "type": "object",
+ "properties": {
+  "specversion": {
+   "const": "1.0"
+  },
+  "id": {
+   "type": "string"
+  },
+  "source": {
+   "type": "string",
+   "format": "uri-reference"
+  },
+  "type": {
+   "type": "string",
+   "pattern": "^[a-z0-9]+(\\.[a-z0-9_-]+)+$"
+  },
+  "subject": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "time": {
+   "type": "string",
+   "format": "date-time"
+  },
+  "datacontenttype": {
+   "type": "string"
+  },
+  "dataschema": {
+   "type": "string",
+   "format": "uri"
+  },
+  "data": {
+   "type": "object",
+   "properties": {
+    "provenance": {
+     "type": "object",
+     "properties": {
+      "origin": {
+       "type": "string",
+       "enum": [
+        "human",
+        "agent",
+        "webhook",
+        "probe",
+        "system"
+       ]
+      },
+      "tier": {
+       "type": "string",
+       "enum": [
+        "src",
+        "measured",
+        "derived",
+        "unverified",
+        "falsified"
+       ]
+      },
+      "verification": {
+       "type": "string",
+       "enum": [
+        "human_verified",
+        "machine_verified",
+        "certified",
+        "reported",
+        "unverified"
+       ]
+      },
+      "actor": {
+       "type": "string",
+       "description": "URI-reference of an actor: human:\u2026 agent:\u2026 system:\u2026 hook:\u2026 (Mentu/Atrio actor prefixes)"
+      },
+      "source_ref": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "rule": {
+       "type": [
+        "string",
+        "null"
+       ]
+      },
+      "wasDerivedFrom": {
+       "type": "array",
+       "items": {
+        "type": "object",
+        "properties": {
+         "source": {
+          "type": "string"
+         },
+         "id": {
+          "type": "string"
+         }
+        },
+        "required": [
+         "source",
+         "id"
+        ]
+       }
+      },
+      "wasAttributedTo": {
+       "type": "string",
+       "description": "URI-reference of an actor: human:\u2026 agent:\u2026 system:\u2026 hook:\u2026 (Mentu/Atrio actor prefixes)"
+      },
+      "supersedes": {
+       "anyOf": [
+        {
+         "type": "object",
+         "properties": {
+          "source": {
+           "type": "string"
+          },
+          "id": {
+           "type": "string"
+          }
+         },
+         "required": [
+          "source",
+          "id"
+         ]
+        },
+        {
+         "type": "null"
+        }
+       ]
+      }
+     }
+    },
+    "tags": {
+     "type": "object"
+    }
+   }
+  },
+  "data_base64": {
+   "type": "string"
+  },
+  "sequence": {
+   "type": "string",
+   "pattern": "^[0-9]{20}$",
+   "description": "CloudEvents sequence extension: zero-padded seq, comparable within one source"
+  },
+  "tier": {
+   "type": "string",
+   "enum": [
+    "src",
+    "measured",
+    "derived",
+    "unverified",
+    "falsified"
+   ]
+  },
+  "origin": {
+   "type": "string",
+   "enum": [
+    "human",
+    "agent",
+    "webhook",
+    "probe",
+    "system"
+   ]
+  },
+  "verified": {
+   "type": "string",
+   "enum": [
+    "human_verified",
+    "machine_verified",
+    "certified",
+    "reported",
+    "unverified"
+   ]
+  },
+  "horizon": {
+   "type": "string",
+   "enum": [
+    "event",
+    "minute",
+    "hour",
+    "day",
+    "week",
+    "month"
+   ]
+  },
+  "actor": {
+   "type": "string",
+   "description": "URI-reference of an actor: human:\u2026 agent:\u2026 system:\u2026 hook:\u2026 (Mentu/Atrio actor prefixes)"
+  },
+  "redelivered": {
+   "type": "boolean"
+  },
+  "traceparent": {
+   "type": "string"
+  },
+  "tracestate": {
+   "type": "string"
+  }
+ },
+ "required": [
+  "specversion",
+  "id",
+  "source",
+  "type",
+  "time",
+  "sequence",
+  "tier",
+  "origin",
+  "verified",
+  "horizon",
+  "actor"
+ ],
+ "additionalProperties": true,
+ "oneOf": [
+  {
+   "required": [
+    "data"
+   ]
+  },
+  {
+   "required": [
+    "data_base64"
+   ]
+  }
+ ]
+}

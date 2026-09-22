@@ -1,0 +1,200 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://mentu.ai/schemas/monitor-protocol/0.1/monitor.json",
+ "title": "monitor",
+ "description": "Spec 01 \u00a71. A definition: what is watched, at what rhythm, with what authority.",
+ "type": "object",
+ "properties": {
+  "id": {
+   "type": "string"
+  },
+  "name": {
+   "type": "string"
+  },
+  "description": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "version": {
+   "type": [
+    "integer",
+    "string"
+   ]
+  },
+  "owner": {
+   "type": "string",
+   "description": "URI-reference of an actor: human:\u2026 agent:\u2026 system:\u2026 hook:\u2026 (Mentu/Atrio actor prefixes)"
+  },
+  "source": {
+   "type": "object",
+   "properties": {
+    "kind": {
+     "type": "string",
+     "enum": [
+      "shell",
+      "ws",
+      "http",
+      "file",
+      "feed",
+      "cir",
+      "formula",
+      "log"
+     ]
+    },
+    "ref": {
+     "type": "string"
+    },
+    "settings": {
+     "type": "object"
+    }
+   },
+   "required": [
+    "kind"
+   ]
+  },
+  "filter": {
+   "$ref": "https://mentu.ai/schemas/monitor-protocol/0.1/filter.json"
+  },
+  "horizon": {
+   "type": "string",
+   "enum": [
+    "event",
+    "minute",
+    "hour",
+    "day",
+    "week",
+    "month"
+   ]
+  },
+  "capabilities": {
+   "type": "array",
+   "items": {
+    "type": "string",
+    "enum": [
+     "observe",
+     "react",
+     "act"
+    ]
+   },
+   "uniqueItems": true
+  },
+  "cadence": {
+   "type": "object",
+   "properties": {
+    "heartbeat_seconds": {
+     "type": "integer"
+    },
+    "schedule": {
+     "type": "string"
+    },
+    "event_driven": {
+     "type": "boolean"
+    }
+   }
+  },
+  "ttl_seconds": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "retire_after_mute_seconds": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "budget": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "properties": {
+    "currency": {
+     "type": "string"
+    },
+    "per_day": {
+     "type": "number"
+    }
+   }
+  },
+  "visibility": {
+   "type": "string",
+   "enum": [
+    "private",
+    "shared",
+    "public"
+   ]
+  },
+  "rules": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "version": {
+      "type": "string"
+     },
+     "when": {
+      "$ref": "https://mentu.ai/schemas/monitor-protocol/0.1/filter.json"
+     },
+     "then": {
+      "type": "string",
+      "pattern": "^(log|annotate|label|escalate:.+|run:.+|notify:human)$"
+     },
+     "derived_from": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "reason": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "when",
+     "then"
+    ]
+   }
+  },
+  "types": {
+   "type": "array",
+   "items": {
+    "type": "string"
+   }
+  },
+  "limits": {
+   "type": "object"
+  },
+  "created": {
+   "type": "string",
+   "format": "date-time"
+  },
+  "updated": {
+   "type": "string",
+   "format": "date-time"
+  },
+  "active": {
+   "type": "boolean"
+  },
+  "head": {
+   "type": "integer"
+  }
+ },
+ "required": [
+  "id",
+  "name",
+  "owner",
+  "source",
+  "horizon",
+  "capabilities",
+  "visibility"
+ ],
+ "additionalProperties": true
+}

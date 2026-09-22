@@ -1,0 +1,204 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://mentu.ai/schemas/monitor-protocol/0.1/state.json",
+ "title": "state",
+ "description": "Spec 01 \u00a73. The computed projection; a missing input is listed, never defaulted (P3).",
+ "type": "object",
+ "properties": {
+  "monitor": {
+   "type": "string"
+  },
+  "as_of": {
+   "type": "string",
+   "format": "date-time"
+  },
+  "as_of_seq": {
+   "type": "integer"
+  },
+  "covers_until": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "format": "date-time"
+  },
+  "head": {
+   "type": "integer"
+  },
+  "retention_floor": {
+   "type": "integer"
+  },
+  "live": {
+   "type": "object",
+   "properties": {
+    "value": {
+     "type": "boolean"
+    },
+    "reason": {
+     "type": [
+      "string",
+      "null"
+     ]
+    }
+   },
+   "required": [
+    "value",
+    "reason"
+   ]
+  },
+  "counters": {
+   "type": "object",
+   "properties": {
+    "observations": {
+     "type": "integer"
+    },
+    "delivered": {
+     "type": "integer"
+    },
+    "acted": {
+     "type": "integer"
+    },
+    "subscriptions_active": {
+     "type": "integer"
+    },
+    "rejected": {
+     "type": "integer"
+    }
+   }
+  },
+  "last": {
+   "type": [
+    "object",
+    "null"
+   ],
+   "properties": {
+    "seq": {
+     "type": "integer"
+    },
+    "time": {
+     "type": "string",
+     "format": "date-time"
+    },
+    "type": {
+     "type": "string"
+    }
+   }
+  },
+  "ages": {
+   "type": "object",
+   "additionalProperties": {
+    "type": [
+     "integer",
+     "null"
+    ]
+   }
+  },
+  "contradictions_open": {
+   "type": "integer"
+  },
+  "confidence": {
+   "type": "object",
+   "properties": {
+    "value": {
+     "type": [
+      "number",
+      "null"
+     ]
+    },
+    "computed_by": {
+     "type": "string"
+    },
+    "inputs": {
+     "type": "object",
+     "properties": {
+      "present": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      },
+      "missing": {
+       "type": "array",
+       "items": {
+        "type": "string"
+       }
+      }
+     },
+     "required": [
+      "present",
+      "missing"
+     ]
+    },
+    "gaps": {
+     "type": "array",
+     "items": {
+      "type": "string",
+      "enum": [
+       "no_event_provenance",
+       "independence_unknown",
+       "single_actor",
+       "stale_source",
+       "no_subscribers"
+      ]
+     }
+    }
+   },
+   "required": [
+    "value",
+    "computed_by",
+    "inputs",
+    "gaps"
+   ]
+  },
+  "computed_from": {
+   "type": "object",
+   "properties": {
+    "seq_from": {
+     "type": "integer"
+    },
+    "seq_to": {
+     "type": "integer"
+    }
+   }
+  },
+  "ttl_ms": {
+   "type": "integer"
+  },
+  "supersedes": {
+   "anyOf": [
+    {
+     "type": "object",
+     "properties": {
+      "source": {
+       "type": "string"
+      },
+      "id": {
+       "type": "string"
+      }
+     },
+     "required": [
+      "source",
+      "id"
+     ]
+    },
+    {
+     "type": "null"
+    }
+   ]
+  }
+ },
+ "required": [
+  "monitor",
+  "as_of",
+  "as_of_seq",
+  "covers_until",
+  "head",
+  "live",
+  "counters",
+  "ages",
+  "contradictions_open",
+  "confidence",
+  "computed_from"
+ ],
+ "additionalProperties": true
+}

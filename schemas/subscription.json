@@ -1,0 +1,100 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://mentu.ai/schemas/monitor-protocol/0.1/subscription.json",
+ "title": "subscription",
+ "description": "Spec 01 \u00a74. A consumer with a durable cursor (Kafka committed position).",
+ "type": "object",
+ "properties": {
+  "id": {
+   "type": "string"
+  },
+  "monitor": {
+   "type": "string"
+  },
+  "subscriber": {
+   "type": "string",
+   "description": "URI-reference of an actor: human:\u2026 agent:\u2026 system:\u2026 hook:\u2026 (Mentu/Atrio actor prefixes)"
+  },
+  "filter": {
+   "$ref": "https://mentu.ai/schemas/monitor-protocol/0.1/filter.json"
+  },
+  "capabilities": {
+   "type": "array",
+   "items": {
+    "type": "string",
+    "enum": [
+     "observe",
+     "react",
+     "act"
+    ]
+   },
+   "uniqueItems": true
+  },
+  "cursor": {
+   "type": "integer",
+   "minimum": 0
+  },
+  "reset_policy": {
+   "type": "string",
+   "enum": [
+    "earliest",
+    "latest",
+    "none"
+   ]
+  },
+  "protocol": {
+   "type": "string",
+   "enum": [
+    "pull",
+    "http",
+    "mcp"
+   ]
+  },
+  "sink": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "format": "uri"
+  },
+  "sinkcredential": {
+   "type": [
+    "object",
+    "null"
+   ]
+  },
+  "retire_after_mute_seconds": {
+   "type": [
+    "integer",
+    "null"
+   ]
+  },
+  "created": {
+   "type": "string",
+   "format": "date-time"
+  },
+  "last_pull": {
+   "type": [
+    "string",
+    "null"
+   ],
+   "format": "date-time"
+  },
+  "active": {
+   "type": "boolean"
+  },
+  "lag": {
+   "type": "integer"
+  }
+ },
+ "required": [
+  "id",
+  "monitor",
+  "subscriber",
+  "capabilities",
+  "cursor",
+  "protocol",
+  "active"
+ ],
+ "additionalProperties": true
+}

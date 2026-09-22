@@ -1,0 +1,47 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://mentu.ai/schemas/monitor-protocol/0.1/lease.json",
+ "title": "lease",
+ "description": "Kubernetes Lease field names; expired when now > renew_time + lease_duration_seconds; Kafka share-group outcomes release/reject.",
+ "type": "object",
+ "properties": {
+  "subject": {
+   "type": "string"
+  },
+  "holder": {
+   "type": [
+    "string",
+    "null"
+   ]
+  },
+  "lease_duration_seconds": {
+   "type": "integer"
+  },
+  "acquire_time": {
+   "type": "string",
+   "format": "date-time"
+  },
+  "renew_time": {
+   "type": "string",
+   "format": "date-time"
+  },
+  "lease_transitions": {
+   "type": "integer"
+  },
+  "attempts": {
+   "type": "integer"
+  },
+  "delivery_count_limit": {
+   "type": "integer"
+  }
+ },
+ "required": [
+  "subject",
+  "holder",
+  "lease_duration_seconds",
+  "acquire_time",
+  "renew_time",
+  "lease_transitions"
+ ],
+ "additionalProperties": true
+}

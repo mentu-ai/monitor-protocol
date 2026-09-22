@@ -1,0 +1,6 @@
+dist/
+node_modules/
+*.cast
+*.mp4
+.monitor-protocol/
+*.db

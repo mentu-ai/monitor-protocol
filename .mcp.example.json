@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "monitor-protocol": {
+      "command": "npx",
+      "args": ["-y", "@mentu/monitor-protocol@latest", "mcp", "--state", "~/.monitor-protocol/state.json"]
+    }
+  }
+}

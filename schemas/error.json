@@ -1,0 +1,40 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "https://mentu.ai/schemas/monitor-protocol/0.1/error.json",
+ "title": "error",
+ "description": "Spec 02 error object; HTTP mapping in spec/02-methods.md.",
+ "type": "object",
+ "properties": {
+  "code": {
+   "type": "string",
+   "enum": [
+    "INVALID_FILTER",
+    "UNKNOWN_VOCABULARY",
+    "TIER_NOT_ASSERTABLE",
+    "INVALID",
+    "CAPABILITY_MISSING",
+    "UNAUTHORIZED",
+    "NOT_FOUND",
+    "DUPLICATE",
+    "CURSOR_BACKWARDS",
+    "CURSOR_EXPIRED",
+    "LEASE_HELD",
+    "LEASE_LOST",
+    "EVIDENCE_REQUIRED",
+    "OVER_BUDGET"
+   ]
+  },
+  "error": {
+   "type": "string"
+  },
+  "done": {
+   "type": "array",
+   "description": "what was applied before the refusal (Atrio \u00a75)"
+  }
+ },
+ "required": [
+  "code",
+  "error"
+ ],
+ "additionalProperties": true
+}
