@@ -11,6 +11,11 @@ Released 2026-09-22.
 - **The README is rewritten in plain language**, from one idea: the Claude Code Monitor tool,
   taken out of the session and made durable, shareable and accountable. It links to the new
   documentation at docs.mentu.ai, including a playground that runs this engine in the browser.
+- **A field left out never reaches the top of its ladder.** On a monitor owned by a person, an
+  observation with no tier or verification stated now defaults to `measured` and `reported`, as P1
+  says, instead of `src` and `human_verified`. Version 0.1.1 had widened that default by accident
+  when it made delegation lighter. Asserting `src` explicitly works as before. C26 checks it, in
+  both runners, with a raw request the old servers fail.
 - The command line help lists the conformance suite as C01 to C29, which is what it runs. MCP
   resource names read `CI: state` instead of using a dash as a separator.
 

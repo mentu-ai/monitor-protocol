@@ -367,9 +367,19 @@ class Suite:
         dob = (out_d or {}).get("observation") or {}
         delegation_works = (st_d == 201 and dob.get("tier") == "src" and dob.get("actor") == "agent:worker"
                             and ((dob.get("data") or {}).get("provenance") or {}).get("on_behalf_of") == "human:conformance")
-        self.check("C26", not escapes and delegation_works,
-                   "five inflations refused, delegation honoured",
-                   "; ".join(escapes) if escapes else f"delegation did not work: {st_d} {out_d}")
+        # The top is asserted, never defaulted: a person's observation with no tier or verification
+        # stated stops below src and human_verified. Sent raw, because publish() fills those fields in.
+        st_q, out_q = self.c.req("POST", f"/mp/v0/monitors/{d_id}/observations",
+                                 {"type": "test.conformance.reading", "subject": "probe-1",
+                                  "actor": "human:conformance", "data": {"value": 1}}, token=d_tok)
+        qob = (out_q or {}).get("observation") or {}
+        defaults_stop = (st_q == 201 and qob.get("tier") != "src"
+                         and qob.get("verified") not in ("human_verified", "certified"))
+        self.check("C26", not escapes and delegation_works and defaults_stop,
+                   "five inflations refused, defaults stop below the top, delegation honoured",
+                   "; ".join(escapes) if escapes
+                   else (f"delegation did not work: {st_d} {out_d}" if not delegation_works
+                         else f"a field left out reached the top: {st_q} tier={qob.get('tier')} verified={qob.get('verified')}"))
 
         # C27 — a cursor that is not an integer is refused, not turned into NaN.
         st_n, n_body = c.req("POST", f"/mp/v0/subscriptions/{p4_id}/ack", {"cursor": "abc"}, token=p4_tok)

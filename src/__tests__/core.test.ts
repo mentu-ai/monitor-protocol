@@ -276,6 +276,22 @@ test("an agent acts at the access level of the person it acts for", () => {
   assert.equal(someoneElse.status, 403, "a record naming a person the monitor does not act for is a false attribution at any tier");
 });
 
+test("the top of a ladder is asserted, never reached by leaving the field out", () => {
+  const service = new MonitorService(new MemoryStore());
+  const created = service.createMonitor({ id: "defaults", name: "d", owner: "human:rashid", horizon: "day", capabilities: ["observe"], visibility: "public", types: ["t.x"] });
+  const { owner_token } = created.body as { owner_token: string };
+  const quiet = service.monitorAction("defaults", "observations", { type: "t.x", data: {} }, { bearer: owner_token });
+  assert.equal(quiet.status, 201, JSON.stringify(quiet.body));
+  const o = (quiet.body as { observation: Observation }).observation;
+  assert.equal(o.origin, "human", "the owner's own observation keeps its human origin");
+  assert.equal(o.tier, "measured", "a person's observation with no tier stated stops below src");
+  assert.equal(o.verified, "reported", "and its verification stops below human_verified");
+  const said = service.monitorAction("defaults", "observations", { type: "t.x", tier: "src", verification: "human_verified", data: {} }, { bearer: owner_token });
+  const s = (said.body as { observation: Observation }).observation;
+  assert.equal(s.tier, "src", "asserted, it is honoured");
+  assert.equal(s.verified, "human_verified");
+});
+
 test("an open server discloses that nobody vouched for its owners", () => {
   const open = new MonitorService(new MemoryStore());
   const m = open.createMonitor({ id: "open-posture", name: "o", owner: "human:rashid", horizon: "day", capabilities: ["observe"], visibility: "public", types: ["t.x"] });

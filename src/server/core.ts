@@ -322,12 +322,14 @@ export class MonitorService {
     const inferred = this.originOf(actor);
     const origin = (declaredOrigin ?? (mayAttest ? inferred : inferred === "human" ? "agent" : inferred)) as Origin;
     const fallback = ORIGINS.includes(origin) ? ORIGIN_TIER_CEILING[origin] : "unverified";
-    const ceilingTier: Tier = mayAttest ? fallback : (HUMAN_PRINCIPAL_ONLY.tiers as string[]).includes(fallback) ? MACHINE_CEILING.tier : fallback;
-    const tier = String(b.tier ?? ceilingTier);
+    // P1: the top of a ladder is asserted, never defaulted. Whoever the principal is, a field left
+    // out stops one step below the top: `measured` for the tier, `reported` for the verification.
+    // A person who means `src` says so, and the human-principal rule below then applies to it.
+    const defaultTier: Tier = (HUMAN_PRINCIPAL_ONLY.tiers as string[]).includes(fallback) ? MACHINE_CEILING.tier : fallback;
+    const tier = String(b.tier ?? defaultTier);
     const vFallback = ORIGINS.includes(origin) ? ORIGIN_VERIFICATION_CEILING[origin] : "unverified";
-    const ceilingVerification: Verification = mayAttest ? vFallback
-      : (HUMAN_PRINCIPAL_ONLY.verifications as string[]).includes(vFallback) ? MACHINE_CEILING.verification : vFallback;
-    const verification = String(b.verification ?? ceilingVerification);
+    const defaultVerification: Verification = (HUMAN_PRINCIPAL_ONLY.verifications as string[]).includes(vFallback) ? "reported" : vFallback;
+    const verification = String(b.verification ?? defaultVerification);
     const actorPrefixOrigin = ORIGIN_OF_ACTOR_PREFIX[actor.split(":")[0]] as Origin | undefined;
     const bad: string[] = [];
     if (!TYPE_RE.test(type)) bad.push(`type:${type || "(empty)"}`);

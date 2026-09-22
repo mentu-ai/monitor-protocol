@@ -264,9 +264,17 @@ class Suite {
     const delegationWorks = onBehalf.status === 201 && dob?.tier === "src"
       && (dob.data.provenance as { on_behalf_of?: string })?.on_behalf_of === "human:conformance"
       && dob.actor === "agent:worker";
-    this.check("C26", escapes.length === 0 && delegationWorks,
-      escapes.length ? say(escapes) : `delegation did not work: ${onBehalf.status} ${say(onBehalf.body)}`,
-      "five inflations refused, delegation honoured");
+    // The top is asserted, never defaulted: a person's observation with no tier or verification
+    // stated stops below src and human_verified. Sent raw, because publish() fills those fields in.
+    const unstated = await this.req<{ observation: Observation }>("POST", `/monitors/${delegated.id}/observations`,
+      { type: "test.conformance.reading", subject: "probe-1", actor: "human:conformance", data: { value: 1 } }, delegated.token);
+    const qob = unstated.body.observation;
+    const defaultsStopBelowTop = unstated.status === 201 && qob?.tier !== "src" && qob?.verified !== "human_verified" && qob?.verified !== "certified";
+    this.check("C26", escapes.length === 0 && delegationWorks && defaultsStopBelowTop,
+      escapes.length ? say(escapes)
+        : !delegationWorks ? `delegation did not work: ${onBehalf.status} ${say(onBehalf.body)}`
+        : `a field left out reached the top: ${unstated.status} tier=${qob?.tier} verified=${qob?.verified}`,
+      "five inflations refused, defaults stop below the top, delegation honoured");
 
     // C27 — a cursor that is not an integer is refused, not silently turned into NaN.
     const nan = await this.req<{ code?: string }>("POST", `/subscriptions/${p4.id}/ack`, { cursor: "abc" }, p4.token);

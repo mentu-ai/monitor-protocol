@@ -41,7 +41,8 @@ repeat the owner's name.
 **The top tier is never reached by defaulting.** Holding a monitor's token is not being a person,
 so an observation published without a stated tier tops out at `[MEASURED]` even when the actor
 string claims a human origin; `[SRC]` must be asserted explicitly, and the refusal above then
-applies to it. *(Found by the reference implementation's own test, 2026-09-21: a machine
+applies to it. The same holds on the verification ladder: left out, it stops at `reported`, below
+`human_verified`. *(Found by the reference implementation's own test, 2026-09-21: a machine
 publishing under a `human:` owner silently obtained `[SRC]`.)*
 
 ## P2. A rejection is still evidence
