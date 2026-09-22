@@ -106,8 +106,8 @@ export function createMcpServer(service: MonitorService, opts: { serverName?: st
   const visible = () => [...service.store.monitors.values()].filter(m => m.visibility !== "private");
   server.setRequestHandler(ListResourcesRequestSchema, () => ({
     resources: visible().flatMap(m => [
-      { uri: `monitor://${m.id}/definition`, name: `${m.name} — definition`, mimeType: "application/json" },
-      { uri: `monitor://${m.id}/state`, name: `${m.name} — state`, mimeType: "application/json" },
+      { uri: `monitor://${m.id}/definition`, name: `${m.name}: definition`, mimeType: "application/json" },
+      { uri: `monitor://${m.id}/state`, name: `${m.name}: state`, mimeType: "application/json" },
     ]),
   }));
   server.setRequestHandler(ListResourceTemplatesRequestSchema, () => ({

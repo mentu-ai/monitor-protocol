@@ -12,6 +12,7 @@ import { createHttpServer, listen } from "./server/http.js";
 import { MCP_TOOL_DEFINITIONS, serveMcp } from "./server/mcp.js";
 import { printSummary, runConformance } from "./conformance.js";
 import { watch } from "./watch.js";
+import { expandHome } from "./paths.js";
 
 export * from "./vocab.js";
 export * from "./types.js";
@@ -27,9 +28,9 @@ export { MonitorClient } from "./client.js";
 export { watch } from "./watch.js";
 export { runConformance, printSummary, SUITE_VERSION } from "./conformance.js";
 
-const USAGE = `monitor-protocol — an epistemic layer over pub/sub
+const USAGE = `monitor-protocol: monitors that keep watching, remember what they saw, and say what they do not know
 
-  serve [--port 8130] [--host 127.0.0.1] [--state <file.json>] [--allow-admin[=token]]
+  serve [--port 8130] [--host 127.0.0.1] [--state <file.json, ~ allowed>] [--allow-admin[=token]]
         [--registration-token <tok>] [--retire-after-mute <seconds>]
         Serve the REST + JSON-RPC + SSE binding under /mp/v0. --allow-admin mints an admin token
         and prints it; --registration-token makes monitor creation attested.
@@ -38,7 +39,7 @@ const USAGE = `monitor-protocol — an epistemic layer over pub/sub
   watch --base <url> --subscription <id> --token <tok> [--catch-up] [--wait 25] [--limit 50] [--once]
         Pull/ack loop, one line per observation. The client for a Claude Code Monitor arm.
   conform (--self | --base <url>) [--admin[=token]] [--json]
-        Run the conformance suite C01-C21 against an implementation.
+        Run the conformance suite (C01 to C29) against an implementation.
   publish --base <url> --monitor <id> --token <owner> --type <t> [--subject s] [--tier measured] [--origin probe] [--data '{}']
         Publish one observation.
   tools [--json]
@@ -64,7 +65,7 @@ const str = (f: Flags, k: string, d = ""): string => (typeof f[k] === "string" ?
 const num = (f: Flags, k: string, d: number): number => (typeof f[k] === "string" ? Number(f[k]) : d);
 
 function makeService(flags: Flags): MonitorService {
-  const store = new MemoryStore(typeof flags.state === "string" ? flags.state : undefined);
+  const store = new MemoryStore(typeof flags.state === "string" ? expandHome(flags.state) : undefined);
   const retire = num(flags, "retire-after-mute", 604800);
   const registrationToken = typeof flags["registration-token"] === "string" ? (flags["registration-token"] as string) : undefined;
   return new MonitorService(store, { retireAfterMuteDefault: retire, registrationToken });
@@ -88,7 +89,7 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       const server = createHttpServer(service, { allowAdmin, adminToken });
       const { url } = await listen(server, num(flags, "port", 8130), str(flags, "host", "127.0.0.1"));
       const d = service.discover().body as { supportedVersions: string[]; limits: Record<string, unknown> };
-      console.log(`listening ${url}/mp/v0 — protocol ${d.supportedVersions.join(",")}, monitors ${service.store.monitors.size}, head ${service.store.head()}`);
+      console.log(`listening ${url}/mp/v0, protocol ${d.supportedVersions.join(",")}, monitors ${service.store.monitors.size}, head ${service.store.head()}`);
       console.log(`limits ${JSON.stringify(d.limits)}`);
       if (adminToken) console.log(`admin token ${adminToken}`);
       if (service.opts.registrationToken) console.log("registration required: monitors created with the token are attested");
