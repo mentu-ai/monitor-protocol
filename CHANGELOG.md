@@ -28,8 +28,8 @@ reference implementation, and that a client written from the specification lost 
 fixed, along with five other findings, and the conformance suite now fails a server that breaks
 any of them.
 
-- **Provenance.** The top of each ladder — `origin: human`, `tier: src`, `human_verified`,
-  `certified` — now requires an **attested** monitor: created against the server's registration
+- **Provenance.** The top of each ladder, meaning `origin: human`, `tier: src`, `human_verified` and
+  `certified`, now requires an **attested** monitor: created against the server's registration
   token and owned by a `human:` principal. `origin` may no longer authorise itself from the request
   body, and an actor prefix is a ceiling (`agent:evil` cannot carry a human origin). New error
   `PROVENANCE_CEILING`; new monitor fields `attested` and `default_grant`.
@@ -43,7 +43,7 @@ any of them.
   that token and is neither listed nor readable without it.
 - **The admin endpoints** require an admin token; the snapshot, which carries token hashes, is
   never anonymous. `--allow-admin` mints and prints one.
-- **The suite** gains C22–C28 and names C20b: an ack computed from the spec rather than echoed, a
+- **The suite** gains C22 to C28 and names C20b: an ack computed from the spec rather than echoed, a
   wrong bearer refused, a positive control for lease completion, per-monitor head and lag, the four
   inflations the old checks never sent, a non-integer cursor, and a stranger refused `act`. The
   observation validator now checks the vocabularies, not merely presence. 29 checks; C17 may skip.
@@ -52,7 +52,7 @@ any of them.
 **The schemas are now normative and enforced.** They were documentation that nothing read: seven
 files referenced by nothing, and twenty disagreements between prose, schema and types, all of them
 live. `schemas/` is now authoritative for the shape of the objects as served, C29 validates every
-object a conformance run receives, and the twenty disagreements were reconciled one by one — the
+object a conformance run receives, and the twenty disagreements were reconciled one by one: the
 prose moved where the implementation was right, the schemas tightened where the prose was right,
 and `live.reason` was cut back to the two values an implementation can actually emit. The validator
 is written here rather than pulled in, covers exactly the keywords the schemas use, and **fails
@@ -63,14 +63,14 @@ write. `DEFAULT_TIER` and `DEFAULT_VERIFICATION` became `ORIGIN_TIER_CEILING` an
 **An agent acts at the access level of the person it works for.** The first cut of the provenance
 gate asked an agent for a credential of its own: a monitor reached the top of the ladder only if it
 had been created against a registration token. That is a heavy answer to a question about trust,
-and it locked out the ordinary case — a person's own agent, reporting for them. The relationship
+and it locked out the ordinary case: a person's own agent, reporting for them. The relationship
 that already exists is the monitor: a person owns it and hands its token to their agent. An
 observation may now carry `on_behalf_of` naming the monitor's owner, and the agent then works at the
 owner's level. It can name nobody else, so delegation lends no one's level. Both names are kept:
 `provenance.actor` is who observed, `provenance.on_behalf_of` is who it was for. What the server
 refuses is the claim that contradicts itself, not the claim it cannot verify: a machine asserting a
 human origin with nobody named, or naming a person the monitor does not belong to. `attested`
-stayed, as a disclosure rather than a gate — an unattested server works exactly as well, and every
+stayed, as a disclosure rather than a gate. An unattested server works exactly as well, and every
 state it serves carries the gap `unattested_origin` so a reader knows nobody independent vouched for
 the owner. C26 gained a fifth probe and its positive control: an agent naming a stranger is refused,
 an agent naming the owner is honoured. The MCP `monitor_publish` tool now advertises the field; it
@@ -88,7 +88,7 @@ before any consumer sees a version.
   Observation as a CloudEvents 1.0 event, State, Subscription, Configure as observations), the
   method set with a REST binding and JSON-RPC, delivery semantics named after their sources
   (Kafka committed position, Kubernetes Lease and `410` relist, MQTT retained state), and the
-  conformance suite C01–C21 in two runners (TypeScript, Python).
+  conformance suite C01 to C21 in two runners (TypeScript, Python).
 - Reference server: in-memory store with JSON snapshot persistence, single writer, `--allow-admin`
   compaction for exercising `CURSOR_EXPIRED`.
 - Doors: REST + JSON-RPC + SSE (`node:http`, no dependencies); MCP extension `ai.mentu/monitors`
