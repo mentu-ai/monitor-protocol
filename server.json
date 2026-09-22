@@ -3,7 +3,7 @@
   "name": "io.github.mentu-ai/monitor-protocol",
   "title": "Monitor Protocol",
   "description": "Monitors that emit evidence with provenance, keep a computed state and are pulled with a cursor.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "repository": {
     "url": "https://github.com/mentu-ai/monitor-protocol",
     "source": "github"
@@ -14,7 +14,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "@mentu/monitor-protocol",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "transport": {
         "type": "stdio"
       }

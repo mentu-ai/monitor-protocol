@@ -2,7 +2,7 @@
 
 ## v0.1.1
 
-Unreleased.
+Released 2026-09-22, the first version published to npm.
 
 An independent audit of v0.1.0 found that the protocol's one original claim was false in its own
 reference implementation, and that a client written from the specification lost data. Both are
