@@ -400,7 +400,10 @@ export class MonitorService {
       if (obs.length || Date.now() >= deadline) break;
       await this.store.waitAppend(Math.min(1000, deadline - Date.now()));
     }
-    if (obs.length && replay == null) s.deliveredMax = Math.max(s.deliveredMax, ...obs.map(o => Number(o.id)));
+    if (obs.length && replay == null) {
+      s.deliveredMax = Math.max(s.deliveredMax, ...obs.map(o => Number(o.id)));
+      this.store.persist();     // an empty long-poll iteration writes nothing; a delivery does
+    }
     const head = this.store.head();
     return ok({ subscription: sid, monitor: s.monitor, cursor: s.cursor, head, lag: Math.max(0, head - s.cursor), retention_floor: floor,
       next: obs.length ? Number(obs.at(-1)!.id) : head, redelivered: obs.filter(o => o.redelivered).length, observations: obs },
@@ -416,6 +419,7 @@ export class MonitorService {
       if (req < s.cursor) return err("CURSOR_BACKWARDS", "a cursor does not move backwards; use /seek with a reason", { cursor: s.cursor, requested: req, head });
       const cur = Math.max(0, Math.min(req, head));
       s.delivered += Math.max(0, cur - s.cursor); s.cursor = cur; s.lastPull = now();
+      this.store.persist();                       // a commit that does not survive a restart is not a commit
       return ok({ subscription: sid, cursor: cur, head, lag: Math.max(0, head - cur) });
     }
     if (action === "seek") {
@@ -424,9 +428,10 @@ export class MonitorService {
       if (!b.reason) return err("INVALID", "seek requires a reason");
       const from = s.cursor; s.cursor = Math.max(0, Math.min(req, head)); s.lastPull = now();
       this.log(s.monitor, PROTO_TYPES.subscribed, null, s.subscriber, this.originOf(s.subscriber), { subscription: sid, subscriber: s.subscriber, seek: { from, to: s.cursor }, reason: b.reason });
+      this.store.persist();
       return ok({ subscription: sid, cursor: s.cursor });
     }
-    if (action === "renew") { const tok = token(); s.tokenHash = sha(tok); s.lastPull = now(); return ok({ subscription: this.pubSubscription(s), token: tok }); }
+    if (action === "renew") { const tok = token(); s.tokenHash = sha(tok); s.lastPull = now(); this.store.persist(); return ok({ subscription: this.pubSubscription(s), token: tok }); }
     if (action === "retire") {
       s.active = false; this.releaseHolder("sub:" + sid);
       const ev = this.log(s.monitor, PROTO_TYPES.subscriptionRetired, null, s.subscriber, this.originOf(s.subscriber),

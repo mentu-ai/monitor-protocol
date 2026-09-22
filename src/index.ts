@@ -2,7 +2,9 @@
  * CLI and public API for @mentu/monitor-protocol.
  *   serve · mcp · watch · conform · publish · tools
  */
+import { realpathSync } from "node:fs";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 import { MemoryStore } from "./store.js";
 import { MonitorService } from "./server/core.js";
 import { createHttpServer, listen } from "./server/http.js";
@@ -131,7 +133,12 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
   }
 }
 
-const invokedDirectly = process.argv[1] && (import.meta.url === `file://${process.argv[1]}` || import.meta.url.endsWith("/index.js"));
-if (invokedDirectly) {
+/** True only when this file is the process entry point: importing the library must not run the CLI. */
+function invokedDirectly(): boolean {
+  if (!process.argv[1]) return false;
+  try { return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); } catch { return false; }
+}
+
+if (invokedDirectly()) {
   main().then(code => { if (code !== 0) process.exitCode = code; }).catch(e => { console.error(e instanceof Error ? e.message : String(e)); process.exitCode = 1; });
 }

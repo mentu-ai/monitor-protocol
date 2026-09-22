@@ -33,6 +33,10 @@ export interface Snapshot { seq: number; floor: number; events: LogEvent[]; moni
  * single writer (Node's event loop): claims are check-and-set without a lock, which is exactly the
  * "one conditional write" the spec asks for. `compact(uptoSeq)` drops old rows and raises the
  * retention floor so CURSOR_EXPIRED (C17) is exercisable.
+ *
+ * `persist()` is called by `append` and by every service path that changes durable state without
+ * appending — committing a cursor, seeking, rotating a token, delivering a batch. A long-poll
+ * iteration that delivers nothing writes nothing.
  */
 export class MemoryStore extends EventEmitter {
   seq = 0; floor = 0;

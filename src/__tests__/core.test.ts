@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
 import { MonitorService } from "../server/core.js";
 import { MemoryStore } from "../store.js";
@@ -154,4 +157,25 @@ test("observations carry a 20-digit sequence that sorts like the integer", async
   const seqs = page.observations.map((o: Observation) => o.sequence);
   assert.ok(seqs.every(s => /^\d{20}$/.test(s)));
   assert.deepEqual(seqs, [...seqs].sort());
+});
+
+test("a committed cursor survives a restart, because a commit that does not is not a commit", async () => {
+  const path = join(mkdtempSync(join(tmpdir(), "mp-state-")), "state.json");
+  const first = new MonitorService(new MemoryStore(path));
+  const created = first.createMonitor({ id: "durable", name: "durable", horizon: "hour", capabilities: ["observe"], visibility: "public", types: ["t.x"] });
+  const { monitor, owner_token } = created.body as { monitor: Monitor; owner_token: string };
+  for (let i = 0; i < 3; i++) first.monitorAction(monitor.id, "observations", { type: "t.x", data: { i } }, { bearer: owner_token });
+  const sub = first.subscribe({ monitor: monitor.id, subscriber: "agent:durable", capabilities: ["observe"] }, { bearer: null });
+  const { subscription, token } = sub.body as { subscription: Subscription; token: string };
+  const page = (await first.pull(subscription.id, {}, { bearer: token })).body as PullResult;
+  first.subAction(subscription.id, "ack", { cursor: page.next }, { bearer: token });
+
+  const second = new MonitorService(new MemoryStore(path));
+  const reopened = await second.pull(subscription.id, {}, { bearer: token });
+  assert.equal(reopened.status, 200, JSON.stringify(reopened.body));
+  const after = reopened.body as PullResult;
+  assert.equal(after.cursor, page.next, "the acked cursor did not survive");
+  assert.equal(after.observations.length, 0, "already-acked observations were redelivered after a restart");
+  // configured + three publishes + subscribed
+  assert.equal((second.state(monitor.id, { bearer: null }).body as State).counters.observations, 5);
 });

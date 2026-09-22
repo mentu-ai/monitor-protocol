@@ -15,3 +15,8 @@ Released 2026-09-21.
   with tools, `monitor://` resources and `resources/updated` wake-ups; `watch` loop for the Claude
   Code Monitor tool; `tools --json` inspector.
 - Extracted from a running implementation (the Atrio bus) whose scars became the principles.
+- Five defects found by the conformance suite and by consumer tests against the packed tarball,
+  all fixed before this release and recorded in `docs/decisions.md`: whole-second timestamps could
+  not decide a one-second deadline; a machine publishing under a human-named owner silently
+  obtained the top provenance tier; an SSE stream ended on the request rather than the response;
+  a committed cursor did not survive a restart; importing the library ran the CLI.

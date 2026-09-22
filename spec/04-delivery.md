@@ -19,5 +19,10 @@ Adopted, with the established name for each (see `docs/delivery-semantics.md` fo
 | Stream resume | SSE `id:` + `Last-Event-ID` | The optional SSE binding sends `id: <seq>`; reconnect resumes the stream, but only `ack` commits. MCP 2026-07-28 removed this from its transport; we keep it in ours. |
 | Idempotent writes | Idempotency-Key (vocabulary), Stripe (practice), `webhook-id` | Re-sending an `ack`, `claim` or `complete` with the same arguments returns the prior result, success or error. |
 
+**Durability note.** A cursor is only a guarantee if it outlives the process. An implementation
+writes every change it has already reported as successful — a commit, a seek, a token rotation, a
+delivery that advanced what the subscriber has seen — before the reply leaves. Polling that
+delivers nothing changes nothing and need not be written.
+
 **Single-writer note.** A conformant server may serialise all writes (Atrio does, under one
 lock). "Kafka-like" here is about semantics, never throughput.
