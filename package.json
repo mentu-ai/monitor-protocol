@@ -15,6 +15,7 @@
     "schemas",
     "docs",
     "conformance",
+    "adapters",
     "server.json",
     "!dist/__tests__",
     "!dist/**/*.js.map",

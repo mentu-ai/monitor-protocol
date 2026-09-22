@@ -110,8 +110,9 @@ npx @mentu/monitor-protocol@latest conform --base http://127.0.0.1:8124   # any 
 python3 conformance/python/run.py --base http://127.0.0.1:8124 --subjects a,b,c   # language-independent runner
 ```
 
-Implementations known to pass: this reference server (21/21), and the Atrio bus (Mentu's work
-hub) at 21 PASS · 1 SKIP (infinite retention).
+Two implementations pass today: this reference server (22/22) and Atrio's bus (21 PASS, 1 SKIP —
+it retains everything, so cursor expiry is not exercisable). The Python runner was written against
+the second and passes unmodified against the first. See [`adapters/`](adapters/README.md).
 
 ## Library use
 
