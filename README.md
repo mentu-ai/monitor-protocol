@@ -58,7 +58,7 @@ curl -s localhost:8130/mp/v0/monitors \
 
 # 2. A producer records what it saw, using the owner token.
 curl -s localhost:8130/mp/v0/monitors/ci/observations -H "Authorization: Bearer $OWNER_TOKEN" \
-  -d '{"type":"com.example.ci.run","subject":"build-412","tier":"measured","origin":"probe","data":{"status":"failed"}}'
+  -d '{"type":"com.example.ci.run","subject":"build-412","actor":"probe:ci","tier":"measured","origin":"probe","data":{"status":"failed"}}'
 
 # 3. A reader subscribes once, then takes what it has not seen yet.
 curl -s localhost:8130/mp/v0/subscriptions -d '{"monitor":"ci","subscriber":"agent:claude","capabilities":["observe"]}'
@@ -74,10 +74,10 @@ Reading never moves the cursor. Only an acknowledgement does, and it never moves
 
 From Claude Code, it is one watch per session against the monitor server, instead of one per thing. From any AI client, it is a set of tools over the [Model Context Protocol](https://modelcontextprotocol.io) (MCP).
 
-Add it to Claude Code as an MCP server:
+Add it to Claude Code as an MCP server. It runs its own monitor server, so give it its own state file:
 
 ```bash
-claude mcp add -s user monitor-protocol -- npx -y @mentu/monitor-protocol mcp --state ~/.monitor-protocol/state.json
+claude mcp add -s user monitor-protocol -- npx -y @mentu/monitor-protocol mcp --state ~/.monitor-protocol/mcp-state.json
 ```
 
 Or follow a subscription from a session with the Monitor tool:
@@ -86,7 +86,7 @@ Or follow a subscription from a session with the Monitor tool:
 Monitor(command: "npx -y @mentu/monitor-protocol watch --base http://localhost:8130 --subscription <id> --token <token> --catch-up")
 ```
 
-The watch prints one line per observation and acknowledges each one after printing it. When the Monitor's time runs out, start it again. The subscription remembers its place, so nothing is missed. The guide [Claude Code and MCP](https://docs.mentu.ai/monitor-protocol/claude-code) covers both, and the tools.
+The watch prints one line per observation and acknowledges each batch after printing it. When the Monitor's time runs out, start it again. The subscription remembers its place, so nothing is missed. The guide [Claude Code and MCP](https://docs.mentu.ai/monitor-protocol/claude-code) covers both, and the tools.
 
 ## Learn more
 
