@@ -1,5 +1,19 @@
 # Changelog
 
+## v0.1.2
+
+Released 2026-09-22.
+
+- **A `--state` path that starts with `~` now lands in your home directory.** A shell expands `~`
+  before the program sees it, but an MCP client's JSON configuration does not. The MCP example in
+  the old README therefore created a folder literally named `~` in whatever directory the client
+  started the server from.
+- **The README is rewritten in plain language**, from one idea: the Claude Code Monitor tool,
+  taken out of the session and made durable, shareable and accountable. It links to the new
+  documentation at docs.mentu.ai, including a playground that runs this engine in the browser.
+- The command line help lists the conformance suite as C01 to C29, which is what it runs. MCP
+  resource names read `CI: state` instead of using a dash as a separator.
+
 ## v0.1.1
 
 Released 2026-09-22, the first version published to npm.
