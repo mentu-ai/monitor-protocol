@@ -31,3 +31,13 @@ jobs:
       - run: npm run check:release
       - run: npm audit --omit=dev
       - run: npm pack --dry-run
+      # The tarball a release publishes is the one this job built and tested, never a rebuild.
+      - if: matrix.node-version == 22
+        run: npm pack
+      - if: matrix.node-version == 22
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: package-tarball
+          path: mentu-monitor-protocol-*.tgz
+          if-no-files-found: error
+          retention-days: 30
