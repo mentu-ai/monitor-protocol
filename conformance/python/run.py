@@ -350,13 +350,26 @@ class Suite:
         for label, body in (("tier src, origin omitted", {"tier": "src"}),
                             ("tier src, origin human", {"tier": "src", "origin": "human"}),
                             ("human origin from a non-human actor", {"origin": "human", "actor": "agent:evil"}),
-                            ("agent self-certifying", {"origin": "agent", "verification": "human_verified"})):
+                            ("agent self-certifying", {"origin": "agent", "verification": "human_verified"}),
+                            # delegation must not become a way to borrow a stranger's level
+                            ("agent naming a person the monitor does not belong to",
+                             {"actor": "agent:evil", "on_behalf_of": "human:stranger", "origin": "human", "tier": "src"})):
             st_p, out_p = self.publish(mid, otok, **body)
             o = (out_p or {}).get("observation") or {}
             if st_p < 400 and (o.get("tier") == "src" or o.get("origin") == "human"
                                or o.get("verified") in ("human_verified", "certified")):
                 escapes.append(f"{label} -> tier={o.get('tier')} origin={o.get('origin')} verified={o.get('verified')}")
-        self.check("C26", not escapes, "; ".join(escapes))
+        # The positive control the ceiling owes: an agent acting for a named person reaches what the
+        # person could reach, without a second credential.
+        d_id, d_tok = self.monitor("delegated", owner="human:conformance")
+        st_d, out_d = self.publish(d_id, d_tok, actor="agent:worker", on_behalf_of="human:conformance",
+                                   tier="src", origin="human")
+        dob = (out_d or {}).get("observation") or {}
+        delegation_works = (st_d == 201 and dob.get("tier") == "src" and dob.get("actor") == "agent:worker"
+                            and ((dob.get("data") or {}).get("provenance") or {}).get("on_behalf_of") == "human:conformance")
+        self.check("C26", not escapes and delegation_works,
+                   "five inflations refused, delegation honoured",
+                   "; ".join(escapes) if escapes else f"delegation did not work: {st_d} {out_d}")
 
         # C27 — a cursor that is not an integer is refused, not turned into NaN.
         st_n, n_body = c.req("POST", f"/mp/v0/subscriptions/{p4_id}/ack", {"cursor": "abc"}, token=p4_tok)

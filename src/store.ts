@@ -11,7 +11,7 @@ export interface LogEvent {
 }
 export interface MonitorRow {
   id: string; name: string; description: string | null; version: number; owner: string; ownerTokenHash: string;
-  /** Created against a registration token: a precondition for the top of the provenance ladder (P1). */
+  /** Ownership established against a registration token rather than declared. A disclosure (P1). */
   attested: boolean;
   /** What a subscriber may be granted without the owner token (P7, P14). */
   defaultGrant: string[];

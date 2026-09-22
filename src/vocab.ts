@@ -23,10 +23,10 @@ export const GAPS = ["no_event_provenance", "independence_unknown", "single_acto
 export type Gap = (typeof GAPS)[number];
 
 /**
- * The most an origin could carry if it were attested. Named as ceilings because that is what they
- * are: an unattested monitor is lowered to UNATTESTED_CEILING, and nothing is ever defaulted up to
- * these values. Reading `ORIGIN_TIER_CEILING.human === "src"` as "a human origin gets src" is the
- * misreading the rename exists to prevent (P1).
+ * The most an origin could carry if a human principal stood behind it. Named as ceilings because
+ * that is what they are: an observation with no human principal is lowered to MACHINE_CEILING, and
+ * nothing is ever defaulted up to these values. Reading `ORIGIN_TIER_CEILING.human === "src"` as
+ * "a human origin gets src" is the misreading the rename exists to prevent (P1).
  */
 export const ORIGIN_VERIFICATION_CEILING: Record<Origin, Verification> = {
   human: "human_verified", webhook: "machine_verified", probe: "machine_verified",
@@ -36,14 +36,17 @@ export const ORIGIN_TIER_CEILING: Record<Origin, Tier> = {
   human: "src", webhook: "measured", probe: "measured", system: "measured", agent: "unverified",
 };
 
-/** Reachable only from an attested human principal (P1). Everything else caps below them. */
-export const ATTESTED_ONLY = {
+/**
+ * Reachable only when a human principal stands behind the observation — the monitor's owner, or
+ * whoever an agent named in `on_behalf_of`. Everything else caps below them (P1).
+ */
+export const HUMAN_PRINCIPAL_ONLY = {
   origins: ["human"] as Origin[],
   tiers: ["src"] as Tier[],
   verifications: ["human_verified", "certified"] as Verification[],
 } as const;
-/** The ceiling an unattested caller cannot pass, whatever it declares. */
-export const UNATTESTED_CEILING = { tier: "measured" as Tier, verification: "machine_verified" as Verification };
+/** The ceiling a caller with no human principal cannot pass, whatever it declares. */
+export const MACHINE_CEILING = { tier: "measured" as Tier, verification: "machine_verified" as Verification };
 
 /** An actor URI's prefix must not contradict the origin it claims. */
 export const ORIGIN_OF_ACTOR_PREFIX: Record<string, Origin> = {

@@ -132,6 +132,17 @@
          "type": "null"
         }
        ]
+      },
+      "on_behalf_of": {
+       "type": [
+        "string",
+        "null"
+       ],
+       "description": "The monitor's owner, named by an agent that acted at the owner's access level; it may name nobody else (P1). Both actor and principal are kept."
+      },
+      "attested": {
+       "type": "boolean",
+       "description": "Whether the monitor's ownership was established against a registration token, or merely declared."
       }
      },
      "required": [

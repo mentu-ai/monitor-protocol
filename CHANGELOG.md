@@ -41,6 +41,22 @@ closed** on any other, so a schema can never pass by being misunderstood. `rules
 write. `DEFAULT_TIER` and `DEFAULT_VERIFICATION` became `ORIGIN_TIER_CEILING` and
 `ORIGIN_VERIFICATION_CEILING`, because the old names read as permissions.
 
+**An agent acts at the access level of the person it works for.** The first cut of the provenance
+gate asked an agent for a credential of its own: a monitor reached the top of the ladder only if it
+had been created against a registration token. That is a heavy answer to a question about trust,
+and it locked out the ordinary case — a person's own agent, reporting for them. The relationship
+that already exists is the monitor: a person owns it and hands its token to their agent. An
+observation may now carry `on_behalf_of` naming the monitor's owner, and the agent then works at the
+owner's level. It can name nobody else, so delegation lends no one's level. Both names are kept:
+`provenance.actor` is who observed, `provenance.on_behalf_of` is who it was for. What the server
+refuses is the claim that contradicts itself, not the claim it cannot verify: a machine asserting a
+human origin with nobody named, or naming a person the monitor does not belong to. `attested`
+stayed, as a disclosure rather than a gate — an unattested server works exactly as well, and every
+state it serves carries the gap `unattested_origin` so a reader knows nobody independent vouched for
+the owner. C26 gained a fifth probe and its positive control: an agent naming a stranger is refused,
+an agent naming the owner is honoured. The MCP `monitor_publish` tool now advertises the field; it
+had accepted it silently, which no model would ever have found.
+
 Both implementations were moved together: the reference server passes 30 of 30, Atrio 29 with C17
 skipped because it retains everything.
 

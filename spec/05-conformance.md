@@ -32,7 +32,7 @@ knows only the base URL and creates its own monitor and subscriptions.
 | C23 | A wrong bearer, and no bearer, are both `401` on an authenticated endpoint | P7 |
 | C24 | Positive control: a lease claimed by the holder completes successfully | suite rigor |
 | C25 | A subscription caught up reports `lag: 0`, and an unrelated monitor publishing moves neither its `lag` nor its `head` | P5 |
-| C26 | The provenance ceiling holds for every inflation the earlier checks do not send: tier without origin, tier with a declared human origin, a human origin from a non-human actor, an agent self-certifying | P1 |
+| C26 | The provenance ceiling holds for every inflation the earlier checks do not send: tier without origin, tier with a declared human origin, a human origin from a non-human actor, an agent self-certifying, an agent naming a person the monitor does not belong to; and its positive control holds: an agent naming the monitor's human owner in `on_behalf_of` reaches the owner's level, with both names kept | P1 |
 | C27 | A cursor that is not an integer is refused, in `ack` and in the pull replay | P3, P11 |
 | C28 | A stranger cannot be granted `act` by asking for it | P7 |
 | C29 | Every object the run received — monitor, subscription, observation, state, lease, error — validates against its schema in `schemas/` | 01 §normative schemas |

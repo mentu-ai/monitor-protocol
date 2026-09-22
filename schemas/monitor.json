@@ -189,7 +189,7 @@
   },
   "attested": {
    "type": "boolean",
-   "description": "Created against the server's registration token; a precondition for the top of the provenance ladder (P1)."
+   "description": "Ownership was established against the server's registration token rather than declared. A disclosure, not a gate: an unattested monitor works, and its states carry the unattested_origin gap (P1)."
   },
   "default_grant": {
    "type": "array",

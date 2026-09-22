@@ -29,7 +29,7 @@ monitor's own log, written by `monitors/publish`). `ref` is what is watched (com
 | `retire_after_mute_seconds` | int | no | Default 604800 (168 h). Subscriptions that do not pull within it are retired (P6). |
 | `budget` | object | no | `{currency, per_day}`. Enforced by the server; a monitor over budget pauses and says so. |
 | `visibility` | enum | yes | `private` (default) · `shared` (readable only with the subscribe token the server mints) · `public` (P14). |
-| `attested` | bool | yes | Created against the server's registration token. Only an attested monitor owned by a `human:` principal may reach the top of the provenance ladders (P1). Read-only. |
+| `attested` | bool | yes | Ownership was established against the server's registration token rather than declared. Not a gate: an unattested monitor works, and every state it serves carries the `unattested_origin` gap (P1). Read-only. |
 | `default_grant` | [enum] | no | What a subscriber may hold without the owner or subscribe token. Subset of `capabilities`; defaults to `["observe"]` (P7). |
 | `rules` | [Rule] | no | `{id, version, when: Filter, then: Action, derived_from: [URI-ref], reason}`; `Action` ∈ `log` · `annotate` · `label` · `escalate:<subscription>` · `run:<ref>` · `notify:human` — mechanical only (P9). Every reaction records `rule.id@version`. |
 | `types` | [string] | no | Observation `type`s this monitor declares it emits (reverse-DNS). |
@@ -65,8 +65,11 @@ lowercase, ≤ 20 chars, scalar (CloudEvents extension rules).
 | `traceparent`, `tracestate` | CE ext | no | W3C trace context, as CloudEvents defines. |
 
 `data.provenance` (structured, because CE extensions cannot hold maps): `{origin, tier,
-verification, actor, source_ref, rule, wasDerivedFrom: [{source, id}], wasAttributedTo: actor,
-supersedes: {source, id}}` — PROV-DM relation names.
+verification, actor, on_behalf_of, attested, source_ref, rule, wasDerivedFrom: [{source, id}],
+wasAttributedTo: actor, supersedes: {source, id}}` — PROV-DM relation names. `on_behalf_of` is how
+an agent works at a person's access level: it names the monitor's owner, nobody else, and both the
+actor and the principal are kept, so the record never has to choose between naming the machine and
+naming the person. `attested` is copied from the monitor at the time of publication.
 
 Rules: an `agent`-origin observation MUST NOT carry `tier: src` (P1, `TIER_NOT_ASSERTABLE`). A
 rejected input is emitted as an observation of type `ai.mentu.monitor.rejected` with the raw

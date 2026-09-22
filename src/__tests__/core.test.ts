@@ -195,7 +195,7 @@ test("the provenance ceiling cannot be climbed from the request body", () => {
   assert.equal(o.verified, "unverified");
 });
 
-test("an attested monitor owned by a person may assert what an open one may not", () => {
+test("a server may require a token to create, and a human principal may assert src", () => {
   const service = new MonitorService(new MemoryStore(), { registrationToken: "reg-tok" });
   const open = service.createMonitor({ id: "open-one", name: "o", horizon: "day", capabilities: ["observe"], visibility: "public", types: ["t.x"] });
   assert.equal(open.status, 401, "an open create should be refused when the server requires registration");
@@ -241,4 +241,49 @@ test("a cursor that is not an integer is refused rather than turned into NaN", a
   const still = await service.pull(sub.id, {}, { bearer: token });
   assert.equal(still.status, 200);
   assert.equal((still.body as PullResult).cursor, 0);
+});
+
+test("an agent acts at the access level of the person it acts for", () => {
+  const service = new MonitorService(new MemoryStore());
+  const created = service.createMonitor({ id: "delegation", name: "d", owner: "human:rashid", horizon: "day", capabilities: ["observe"], visibility: "public", types: ["t.x"] });
+  const { monitor, owner_token } = created.body as { monitor: Monitor; owner_token: string };
+
+  const delegated = service.monitorAction(monitor.id, "observations",
+    { type: "t.x", actor: "agent:claude@ab12", on_behalf_of: "human:rashid", tier: "src", origin: "human", data: {} }, { bearer: owner_token });
+  assert.equal(delegated.status, 201, JSON.stringify(delegated.body));
+  const o = (delegated.body as { observation: Observation }).observation;
+  assert.equal(o.tier, "src");
+  assert.equal(o.actor, "agent:claude@ab12", "the machine that observed is still named");
+  assert.equal(o.data.provenance.on_behalf_of, "human:rashid", "and so is the person it acted for");
+
+  const unnamed = service.monitorAction(monitor.id, "observations",
+    { type: "t.x", actor: "agent:claude@ab12", origin: "human", data: {} }, { bearer: owner_token });
+  assert.equal(unnamed.status, 403, "a machine claiming a human origin with nobody named is still refused");
+
+  const agentOwned = service.createMonitor({ id: "agent-owned", name: "a", owner: "agent:bot", horizon: "day", capabilities: ["observe"], visibility: "public", types: ["t.x"] });
+  const at = (agentOwned.body as { owner_token: string }).owner_token;
+  const climb = service.monitorAction("agent-owned", "observations", { type: "t.x", tier: "src", data: {} }, { bearer: at });
+  assert.ok(climb.status >= 400, "no human principal, no top tier");
+  assert.match((climb.body as { code: string }).code, /PROVENANCE_CEILING|TIER_NOT_ASSERTABLE/);
+
+  // The principal comes from the monitor, not from the body: naming a person does not lend their level.
+  const borrowed = service.monitorAction("agent-owned", "observations",
+    { type: "t.x", actor: "agent:bot", on_behalf_of: "human:rashid", origin: "human", tier: "src", data: {} }, { bearer: at });
+  assert.equal(borrowed.status, 403, "an agent naming a person its monitor does not belong to borrowed their level");
+  assert.equal((borrowed.body as { code: string }).code, "PROVENANCE_CEILING");
+  const someoneElse = service.monitorAction(monitor.id, "observations",
+    { type: "t.x", actor: "agent:claude@ab12", on_behalf_of: "human:david", tier: "measured", origin: "probe", data: {} }, { bearer: owner_token });
+  assert.equal(someoneElse.status, 403, "a record naming a person the monitor does not act for is a false attribution at any tier");
+});
+
+test("an open server discloses that nobody vouched for its owners", () => {
+  const open = new MonitorService(new MemoryStore());
+  const m = open.createMonitor({ id: "open-posture", name: "o", owner: "human:rashid", horizon: "day", capabilities: ["observe"], visibility: "public", types: ["t.x"] });
+  const id = (m.body as { monitor: Monitor }).monitor.id;
+  assert.ok((open.state(id, { bearer: null }).body as State).confidence.gaps.includes("unattested_origin"));
+
+  const closed = new MonitorService(new MemoryStore(), { registrationToken: "reg" });
+  const m2 = closed.createMonitor({ id: "closed-posture", name: "c", owner: "human:rashid", horizon: "day", capabilities: ["observe"], visibility: "public", types: ["t.x"] }, undefined, { bearer: "reg" });
+  const id2 = (m2.body as { monitor: Monitor }).monitor.id;
+  assert.ok(!(closed.state(id2, { bearer: null }).body as State).confidence.gaps.includes("unattested_origin"));
 });

@@ -53,6 +53,20 @@ test("a refused call is an error result, not a thrown transport fault", async ()
   assert.equal(structured<{ code: string }>(r).code, "TIER_NOT_ASSERTABLE");
 });
 
+test("an agent reaches its person's level through the MCP door, and names them", async () => {
+  const { client } = await connected();
+  const tool = MCP_TOOL_DEFINITIONS.find(t => t.name === "monitor_publish");
+  assert.ok((tool?.inputSchema as { properties: Record<string, unknown> }).properties.on_behalf_of, "the door must advertise the field, or no model will send it");
+  const created = await client.callTool({ name: "monitor_create", arguments: { id: "mine-mcp", name: "M", owner: "human:rashid", horizon: "day", capabilities: ["observe"], visibility: "public", types: ["t.x"] } });
+  const { monitor, owner_token } = structured<{ monitor: Monitor; owner_token: string }>(created);
+  const r = await client.callTool({ name: "monitor_publish", arguments: { id: monitor.id, bearer: owner_token, type: "t.x", actor: "agent:claude@ab12", on_behalf_of: "human:rashid", origin: "human", tier: "src" } });
+  assert.notEqual(r.isError, true, JSON.stringify(structured(r)));
+  const o = structured<{ observation: { tier: string; actor: string; data: { provenance: { on_behalf_of: string } } } }>(r).observation;
+  assert.equal(o.tier, "src");
+  assert.equal(o.actor, "agent:claude@ab12");
+  assert.equal(o.data.provenance.on_behalf_of, "human:rashid");
+});
+
 test("the state resource is readable and names its missing inputs", async () => {
   const { client } = await connected();
   const created = await client.callTool({ name: "monitor_create", arguments: { id: "res-mcp", name: "R", horizon: "hour", capabilities: ["observe"], visibility: "public", types: ["t.x"] } });

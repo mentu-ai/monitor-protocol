@@ -16,7 +16,7 @@ export interface Monitor {
   id: string; name: string; description?: string | null; version: number; owner: string;
   source: { kind: string; ref?: string; settings?: Record<string, unknown> };
   filter: Filter; horizon: Horizon; capabilities: Capability[];
-  /** Created against a registration token; a precondition for the top of the provenance ladder. */
+  /** Ownership established against a registration token rather than declared. A disclosure (P1). */
   attested?: boolean;
   /** What a subscriber is granted without the owner or subscribe token. */
   default_grant?: Capability[];
@@ -29,6 +29,10 @@ export interface Monitor {
 
 export interface Provenance {
   origin: Origin; tier: Tier; verification: Verification; actor: string;
+  /** Who the actor acted for, when an agent works at a person's access level. */
+  on_behalf_of?: string | null;
+  /** Whether ownership was established against a registration token, or only declared. */
+  attested?: boolean;
   source_ref?: string | null; rule?: string | null;
   wasDerivedFrom?: { source: string; id: string }[]; wasAttributedTo?: string;
   supersedes?: { source: string; id: string } | null;

@@ -7,9 +7,9 @@ import { matches, intersectFilters, validateFilter } from "../filter.js";
 import { seqstr } from "../cloudevents.js";
 import type { LeaseRow, LogEvent, MemoryStore, MonitorRow, SubscriptionRow } from "../store.js";
 import type { AuthCtx, Filter, Lease, Monitor, Observation, ProtocolError, PullResult, Result, State, Subscription } from "../types.js";
-import { ATTESTED_ONLY, CAPABILITIES, ORIGIN_TIER_CEILING, ORIGIN_VERIFICATION_CEILING, EXTENSION_ID, HORIZONS, HTTP_OF, ID_RE,
+import { HUMAN_PRINCIPAL_ONLY, CAPABILITIES, ORIGIN_TIER_CEILING, ORIGIN_VERIFICATION_CEILING, EXTENSION_ID, HORIZONS, HTTP_OF, ID_RE,
   ORIGINS, ORIGIN_OF_ACTOR_PREFIX, PROTOCOL_VERSION, PROTOCOLS, PROTO_PREFIX, PROTO_TYPES, PROTO_TYPE_LIST,
-  RESET_POLICIES, SOURCE_KINDS, TIERS, TYPE_RE, UNATTESTED_CEILING, VERIFICATIONS, VISIBILITIES,
+  RESET_POLICIES, SOURCE_KINDS, TIERS, TYPE_RE, MACHINE_CEILING, VERIFICATIONS, VISIBILITIES,
   type Capability, type ErrorCode, type Gap, type Origin, type Tier, type Verification } from "../vocab.js";
 
 export interface ServiceOptions {
@@ -19,9 +19,10 @@ export interface ServiceOptions {
   /** Actor kind resolver for origin inference: returns "human" | "agent" | "system" | undefined. */
   originOf?: (actor: string) => Origin | undefined;
   /**
-   * When set, creating a monitor requires this token and the monitor is **attested**: only an
-   * attested monitor owned by a `human:` principal may reach the top of the provenance ladder (P1).
-   * When unset the server is open, every monitor is unattested, and the ceiling applies to all.
+   * When set, creating a monitor requires this token and the monitor is marked **attested**: the
+   * server established its ownership rather than taking the owner's word for it. This is a
+   * disclosure, not a gate — an open server's monitors work identically, and say so in every state
+   * they serve through the `unattested_origin` gap (P1).
    */
   registrationToken?: string;
 }
@@ -300,24 +301,32 @@ export class MonitorService {
   /**
    * A producer posts one observation (spec 02 `monitors/publish`). P1 and P2 are enforced here.
    *
-   * The ceiling, in one place: an unattested monitor — or an attested one not owned by a `human:`
-   * principal — cannot reach `origin: human`, `tier: src` or a human verification, whatever the
-   * request body says. The body may lower the provenance of its own observation; it may not raise
-   * it. A guard that reads its verdict out of the same body it is judging is not a guard.
+   * The ceiling, in one place: a monitor whose owner is not a person cannot reach `origin: human`,
+   * `tier: src` or a human verification, whatever the request body says. An agent holding a
+   * person's monitor token acts at that person's level and names them in `on_behalf_of`; it can
+   * name nobody else, so the body can say whose level it is using but never choose it. The body
+   * may lower the provenance of its own observation; it may not raise it. A guard that reads its
+   * verdict out of the same body it is judging is not a guard. The owner is a claim too unless the
+   * server established it, and the server says which: `attested` travels with every observation
+   * and every state.
    */
   publish(m: MonitorRow, b: Record<string, unknown>): Result {
     const type = String(b.type ?? "");
     const actor = String(b.actor ?? m.owner);
-    const mayAttest = m.attested && m.owner.startsWith("human:");
+    // The person an agent acts for is the one the monitor already belongs to: holding its token is
+    // the relationship that exists. `on_behalf_of` makes that legible in one field, and the record
+    // keeps both names. It may only repeat the owner, so it borrows no one's level.
+    const onBehalfOf = b.on_behalf_of == null ? null : String(b.on_behalf_of);
+    const mayAttest = m.owner.startsWith("human:");
     const declaredOrigin = b.origin == null ? null : String(b.origin);
     const inferred = this.originOf(actor);
     const origin = (declaredOrigin ?? (mayAttest ? inferred : inferred === "human" ? "agent" : inferred)) as Origin;
     const fallback = ORIGINS.includes(origin) ? ORIGIN_TIER_CEILING[origin] : "unverified";
-    const ceilingTier: Tier = mayAttest ? fallback : (ATTESTED_ONLY.tiers as string[]).includes(fallback) ? UNATTESTED_CEILING.tier : fallback;
+    const ceilingTier: Tier = mayAttest ? fallback : (HUMAN_PRINCIPAL_ONLY.tiers as string[]).includes(fallback) ? MACHINE_CEILING.tier : fallback;
     const tier = String(b.tier ?? ceilingTier);
     const vFallback = ORIGINS.includes(origin) ? ORIGIN_VERIFICATION_CEILING[origin] : "unverified";
     const ceilingVerification: Verification = mayAttest ? vFallback
-      : (ATTESTED_ONLY.verifications as string[]).includes(vFallback) ? UNATTESTED_CEILING.verification : vFallback;
+      : (HUMAN_PRINCIPAL_ONLY.verifications as string[]).includes(vFallback) ? MACHINE_CEILING.verification : vFallback;
     const verification = String(b.verification ?? ceilingVerification);
     const actorPrefixOrigin = ORIGIN_OF_ACTOR_PREFIX[actor.split(":")[0]] as Origin | undefined;
     const bad: string[] = [];
@@ -327,23 +336,30 @@ export class MonitorService {
     if (!(VERIFICATIONS as readonly string[]).includes(verification)) bad.push(`verification:${verification}`);
     let reject: [ErrorCode, string] | null = null;
     if (bad.length) reject = ["UNKNOWN_VOCABULARY", `invalid values: ${bad.join(", ")}`];
+    else if (onBehalfOf !== null && onBehalfOf !== m.owner)
+      reject = ["PROVENANCE_CEILING", `on_behalf_of names '${onBehalfOf}', but this monitor acts for its owner '${m.owner}': an agent works at the level of the person whose token it holds, not of anyone it names`];
     else if (tier === "src" && origin !== "human") reject = ["TIER_NOT_ASSERTABLE", "a machine cannot assert tier 'src'; a person promotes it on review"];
-    else if (!mayAttest && (ATTESTED_ONLY.origins as string[]).includes(origin))
-      reject = ["PROVENANCE_CEILING", `origin '${origin}' requires an attested monitor owned by a human principal; this one is ${m.attested ? "attested but owned by " + m.owner : "unattested"}`];
-    else if (!mayAttest && (ATTESTED_ONLY.tiers as string[]).includes(tier))
-      reject = ["PROVENANCE_CEILING", `tier '${tier}' requires an attested monitor owned by a human principal`];
-    else if (!mayAttest && (ATTESTED_ONLY.verifications as string[]).includes(verification))
-      reject = ["PROVENANCE_CEILING", `verification '${verification}' requires an attested monitor owned by a human principal`];
+    // What is refused is a claim that contradicts itself, not a claim the server cannot verify.
+    // The server cannot know who is at the keyboard; it can refuse to let a machine assert a human
+    // origin with nobody named, and it can disclose, in every state, that nobody independent
+    // vouched for the owner. Disclosure carries the weight a gate cannot.
+    else if (!mayAttest && (HUMAN_PRINCIPAL_ONLY.origins as string[]).includes(origin))
+      reject = ["PROVENANCE_CEILING", `origin '${origin}' needs a human principal; this monitor's owner is '${m.owner}'`];
+    else if (!mayAttest && (HUMAN_PRINCIPAL_ONLY.tiers as string[]).includes(tier))
+      reject = ["PROVENANCE_CEILING", `tier '${tier}' needs a human principal; this monitor's owner is '${m.owner}'`];
+    else if (!mayAttest && (HUMAN_PRINCIPAL_ONLY.verifications as string[]).includes(verification))
+      reject = ["PROVENANCE_CEILING", `verification '${verification}' needs a human principal; this monitor's owner is '${m.owner}'`];
     // The actor prefix is a ceiling, not an equality: a monitor owned by an agent may report a
-    // probe's observation. What it may not do is claim a human origin for a non-human actor.
-    else if ((ATTESTED_ONLY.origins as string[]).includes(origin) && actorPrefixOrigin && actorPrefixOrigin !== "human")
-      reject = ["PROVENANCE_CEILING", `actor '${actor}' cannot carry origin '${origin}'; its prefix implies '${actorPrefixOrigin}'`];
+    // probe's observation. An agent may carry a human origin only when it names who it acts for.
+    else if ((HUMAN_PRINCIPAL_ONLY.origins as string[]).includes(origin) && actorPrefixOrigin && actorPrefixOrigin !== "human" && !onBehalfOf)
+      reject = ["PROVENANCE_CEILING", `actor '${actor}' cannot carry origin '${origin}' unless it names the person it acts for (on_behalf_of: '${m.owner}')`];
     if (reject) {
       const ev = this.log(m.id, PROTO_TYPES.rejected, (b.subject as string) ?? null, "system:guard", "system",
         { code: reject[0], reason: reject[1], raw: b, actor });
       return err(reject[0], reject[1], { invalid: bad, rejected_seq: ev.seq, known: { tier: TIERS, origin: ORIGINS, verification: VERIFICATIONS } });
     }
-    const provenance = { origin, tier, verification, actor, source_ref: (b.source_ref as string) ?? (b.subject as string) ?? null,
+    const provenance = { origin, tier, verification, actor, on_behalf_of: onBehalfOf,
+      attested: m.attested, source_ref: (b.source_ref as string) ?? (b.subject as string) ?? null,
       rule: (b.rule as string) ?? null, wasDerivedFrom: (b.wasDerivedFrom as unknown[]) ?? [], wasAttributedTo: actor,
       supersedes: (b.supersedes as Record<string, unknown>) ?? null };
     const data = { ...((b.data as Record<string, unknown>) ?? {}), tags: { ...((b.tags as Record<string, unknown>) ?? {}), monitor: m.id, origin } };
@@ -372,7 +388,9 @@ export class MonitorService {
     if (actors.size === 1) gaps.push("single_actor");
     if (m.ttl_seconds && ageObs != null && ageObs > m.ttl_seconds) gaps.push("stale_source");
     if (!subs.length) gaps.push("no_subscribers");
-    if (!(m.attested && m.owner.startsWith("human:"))) gaps.push("unattested_origin");
+    // Not a fault: a statement of posture. On an open server nobody independent vouched for the
+    // owner, and a reader deciding how much to lean on this state is entitled to know that.
+    if (!m.attested) gaps.push("unattested_origin");
     const live = !m.active ? { value: false, reason: "retired" } : m.paused ? { value: false, reason: "paused" } : { value: true, reason: null };
     return {
       monitor: m.id, as_of: now(), as_of_seq: this.store.headOf(m.id), covers_until: m.lastSourceContact ?? last?.time ?? null,

@@ -12,13 +12,31 @@ asserts `[SRC]` is refused (`400`); what an agent proposes enters `[UNVERIFIED]`
 promotes it. *(Atrio §10, 2026-09-15.)*
 
 **A guard may not read its verdict out of the body it is judging.** `origin` arrives in the same
-request as the claim it justifies, so it cannot be the thing that authorises the claim. The top of
-each ladder — `origin: human`, `tier: [SRC]`, `human_verified` and `certified` — is reachable only
-from an **attested** monitor: one created against the server's registration token and owned by a
-`human:` principal. An open server still accepts monitors and observations; what it will not do is
-let them claim the top. The actor prefix is a ceiling too: `agent:evil` cannot carry a human origin.
-*(Independent audit of the reference implementation, 2026-09-21: every inflation the conformance
-check did not send was accepted.)*
+request as the claim it justifies, so it cannot be the thing that authorises the claim. What the
+protocol refuses is a claim that contradicts itself: a machine actor asserting a human origin with
+nobody named, an agent naming a person the monitor does not belong to, or the top tier under an
+owner that is not a person. *(Independent audit of the
+reference implementation, 2026-09-21: every inflation the conformance check did not send was
+accepted.)*
+
+**An agent acts at the access level of the person it acts for, and says so in one field.** Trust
+starts from relationships that already exist, not from a credential this protocol invents. The
+relationship that already exists is the monitor: a person owns it, and an agent they hand its token
+to is inside that boundary. Asking the agent to earn a second credential adds ceremony and buys
+nothing, because the server cannot see who is at the keyboard either way. So an observation may
+carry `on_behalf_of` naming the monitor's owner, and then `actor` and principal are both kept: the
+record says an agent observed it, for a named person, and a reader can weigh that. `on_behalf_of`
+can name only the owner. An agent borrows the level of the person whose token it holds, never of
+someone it merely names.
+
+**Where the protocol cannot verify, it discloses.** A server that establishes ownership against a
+registration token marks its monitors `attested`. A server that does not is not thereby crippled —
+its monitors work, and every state it serves carries the gap `unattested_origin`, which says
+plainly that nobody independent vouched for the owner. A refusal the deployment will route around
+teaches a reader nothing; a disclosure it cannot route around teaches them what the claim is worth.
+The two fields divide the work between them: `attested` says whether the owner was established or
+asserted, and `on_behalf_of` adds nothing a reader must trust beyond that, because it can only
+repeat the owner's name.
 
 **The top tier is never reached by defaulting.** Holding a monitor's token is not being a person,
 so an observation published without a stated tier tops out at `[MEASURED]` even when the actor

@@ -244,6 +244,9 @@ class Suite {
       ["tier src, origin human", { tier: "src", origin: "human" }],
       ["human origin from a non-human actor", { origin: "human", actor: "agent:evil" }],
       ["agent self-certifying", { origin: "agent", verification: "human_verified" }],
+      // Delegation must not become a way to borrow a stranger's level: naming a person the
+      // monitor does not belong to is the probe that tells an owner-bound rule from a loose one.
+      ["agent naming a person the monitor does not belong to", { actor: "agent:evil", on_behalf_of: "human:stranger", origin: "human", tier: "src" }],
     ];
     const escapes: string[] = [];
     for (const [label, body] of ceiling) {
@@ -252,7 +255,18 @@ class Suite {
       const climbed = r.status < 400 && (o?.tier === "src" || o?.origin === "human" || o?.verified === "human_verified" || o?.verified === "certified");
       if (climbed) escapes.push(`${label} → tier=${o?.tier} origin=${o?.origin} verified=${o?.verified}`);
     }
-    this.check("C26", escapes.length === 0, say(escapes));
+    // The positive control the ceiling owes: an agent acting for a named person reaches what the
+    // person could reach, without a second credential. Refusing everything is not a working rule.
+    const delegated = await this.monitor("delegated", { owner: "human:conformance" });
+    const onBehalf = await this.publish(delegated.id, delegated.token,
+      { type: "test.conformance.reading", actor: "agent:worker", on_behalf_of: "human:conformance", tier: "src", origin: "human" });
+    const dob = onBehalf.body.observation;
+    const delegationWorks = onBehalf.status === 201 && dob?.tier === "src"
+      && (dob.data.provenance as { on_behalf_of?: string })?.on_behalf_of === "human:conformance"
+      && dob.actor === "agent:worker";
+    this.check("C26", escapes.length === 0 && delegationWorks,
+      escapes.length ? say(escapes) : `delegation did not work: ${onBehalf.status} ${say(onBehalf.body)}`,
+      "five inflations refused, delegation honoured");
 
     // C27 — a cursor that is not an integer is refused, not silently turned into NaN.
     const nan = await this.req<{ code?: string }>("POST", `/subscriptions/${p4.id}/ack`, { cursor: "abc" }, p4.token);
