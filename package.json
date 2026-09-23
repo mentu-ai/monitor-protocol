@@ -1,6 +1,6 @@
 {
   "name": "@mentu/monitor-protocol",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "mcpName": "io.github.mentu-ai/monitor-protocol",
   "description": "An epistemic layer over pub/sub: monitors as enduring daemons that emit evidence with provenance, keep a computed state, and are subscribed to with a durable cursor. CloudEvents envelope, MCP extension door, Nostr-shaped filters, Kafka-shaped delivery.",
   "main": "dist/index.js",
