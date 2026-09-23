@@ -1,7 +1,29 @@
 # Changelog
 
-## Unreleased
+## v0.1.3
 
+Released 2026-09-23. A hardening release: what a local hub must refuse, and what it must survive.
+
+- **A web page is not the user.** A request carrying an `Origin` the operator did not allow is
+  refused with `ORIGIN_REFUSED`, and on a loopback connection a `Host` that does not name the machine
+  is refused too, which is what DNS rebinding sends. `--allow-origin` lets a named dashboard in, with
+  CORS headers and a preflight answer. Tools that send no `Origin`, such as curl and `watch`, are
+  unaffected. The rule is now part of the HTTP binding and conformance check C30.
+- **Bodies are capped** at 1 MiB (`--max-body`) and refused with `TOO_LARGE` before they are read in
+  full.
+- **Pause means pause.** A paused or retired monitor refuses new observations with `UNAVAILABLE`, and
+  the refusal is recorded. Before, pausing was only a label, and a retired monitor still accepted
+  writes. C14 checks it.
+- **State survives a bad disk day.** Writes are flushed before they replace the old file, the old file
+  is kept as `.prev`, and at start an unreadable file is moved aside while the newest readable copy is
+  loaded. With no readable copy the server refuses to start and changes nothing.
+- **One writer per state file.** A second server on the same file refuses to start, naming the first
+  one's process; a lock left by a killed server is taken over.
+- **The client gives up on a server that never answers**, so `watch` reports `DOWN` and retries
+  instead of hanging. Many waiting readers no longer trip Node's event-emitter leak warning, and the
+  admin token is compared in constant time.
+- **C26's first probe really omits `origin`**, which its label always claimed; the runners' publish
+  helpers had been filling it in.
 - **`watch` keeps going when its server restarts.** A network failure used to end the process
   with `fetch failed`, which is exactly what a Claude Code Monitor meets when the hub restarts. It
   now prints `DOWN` once, waits (1 s, doubling to at most 10 s), tries again, and prints `UP` when

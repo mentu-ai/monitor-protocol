@@ -86,7 +86,17 @@ Or follow a subscription from a session with the Monitor tool:
 Monitor(command: "npx -y @mentu/monitor-protocol watch --base http://localhost:8130 --subscription <id> --token <token> --catch-up")
 ```
 
-The watch prints one line per observation and acknowledges each batch after printing it. When the Monitor's time runs out, start it again. The subscription remembers its place, so nothing is missed. The guide [Claude Code and MCP](https://docs.mentu.ai/monitor-protocol/claude-code) covers both, and the tools.
+The watch prints one line per observation and acknowledges each batch after printing it. When the Monitor's time runs out, start it again. The subscription remembers its place, so nothing is missed. If the server restarts, the watch prints `DOWN`, waits, and carries on when the server is back. The guide [Claude Code and MCP](https://docs.mentu.ai/monitor-protocol/claude-code) covers both, and the tools.
+
+## Safe by default on your machine
+
+A monitor server usually runs next to a web browser, so it assumes every web page you open can reach it.
+
+- **A web page is not you.** Requests from a browser page are refused unless you allow that page with `--allow-origin`. Command line tools are unaffected.
+- **Nothing reaches it through a borrowed name.** On your own machine it only answers to `localhost`, `127.0.0.1` and `::1`, which stops DNS rebinding.
+- **One request cannot exhaust it.** Request bodies over 1 MiB are refused.
+- **Your state survives a bad day.** Each write is flushed to disk before it replaces the last, the previous copy is kept, and a damaged file is set aside instead of overwritten.
+- **Only one server writes a state file.** A second one refuses to start and says which process holds it.
 
 ## Learn more
 
@@ -116,7 +126,7 @@ npx @mentu/monitor-protocol conform --base http://127.0.0.1:8124
 python3 conformance/python/run.py --base http://127.0.0.1:8124 --subjects a,b,c
 ```
 
-The suite has 30 checks. Two implementations run it today. The reference server in this repository passes all 30. Atrio, an event log, passes 29 and skips one, because it keeps everything and cursor expiry cannot be tested there.
+The suite has 31 checks. The reference server in this repository passes all of them. Atrio, an event log, is the second implementation; it keeps everything, so the check that needs old entries deleted is skipped there.
 
 To use the reference server as a library:
 
