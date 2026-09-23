@@ -35,7 +35,7 @@ The name `code` therefore means the string over REST and the number over JSON-RP
 carries the string in both. The closed list: `INVALID_FILTER` · `UNKNOWN_VOCABULARY` · `TIER_NOT_ASSERTABLE`
 · `PROVENANCE_CEILING` · `INVALID` · `CAPABILITY_MISSING` · `UNAUTHORIZED` · `NOT_FOUND` · `DUPLICATE` ·
 `CURSOR_BACKWARDS` · `CURSOR_EXPIRED` · `LEASE_HELD` · `LEASE_LOST` · `EVIDENCE_REQUIRED` ·
-`OVER_BUDGET`. `data`
+`OVER_BUDGET` · `ORIGIN_REFUSED` · `TOO_LARGE` · `UNAVAILABLE`. `data`
 always names what was done before the refusal (`done: []`) when a compound request partially
 applied (Atrio §5).
 
@@ -56,6 +56,7 @@ applied (Atrio §5).
 | admin (optional) | `POST /mp/v0/admin/compact`, `GET /mp/v0/admin/snapshot` — exist only when the server enables them, and **always require an admin token**; the snapshot carries token hashes and must never be anonymous |
 
 HTTP status mapping: `INVALID_FILTER`/`UNKNOWN_VOCABULARY`/`TIER_NOT_ASSERTABLE` → 400 ·
-`UNAUTHORIZED` → 401 · `CAPABILITY_MISSING`/`PROVENANCE_CEILING` → 403 · `NOT_FOUND` → 404 · `DUPLICATE`/
-`CURSOR_BACKWARDS`/`LEASE_HELD`/`LEASE_LOST`/`EVIDENCE_REQUIRED` → 409 · `CURSOR_EXPIRED` → 410 ·
-`OVER_BUDGET` → 429. Bearer token in `Authorization: Bearer`.
+`UNAUTHORIZED` → 401 · `CAPABILITY_MISSING`/`PROVENANCE_CEILING`/`ORIGIN_REFUSED` → 403 · `NOT_FOUND` → 404 ·
+`DUPLICATE`/`CURSOR_BACKWARDS`/`LEASE_HELD`/`LEASE_LOST`/`EVIDENCE_REQUIRED`/`UNAVAILABLE` → 409 ·
+`CURSOR_EXPIRED` → 410 · `TOO_LARGE` → 413 · `OVER_BUDGET` → 429. Bearer token in `Authorization: Bearer`.
+A publish to a paused or retired monitor is refused with `UNAVAILABLE`, and the refusal is recorded (P2).

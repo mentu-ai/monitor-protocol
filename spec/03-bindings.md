@@ -37,6 +37,22 @@ pull/ack loop and prints one line per observation (`seq type subject tier actor`
 session against the hub; re-arm at the 30-minute deadline; `--catch-up` prints the backlog
 without acking so the session sees what it missed (Atrio inbox standard).
 
+## HTTP: who may call a local server
+
+A Monitor Protocol server usually runs on the same machine as a web browser, so every web page its
+user opens can reach it. A page is not the user.
+
+- A server **MUST** refuse, with `403 ORIGIN_REFUSED`, any request whose `Origin` header names an
+  origin its operator has not allowed. Requests without an `Origin` (command line tools, the `watch`
+  client, other servers) are unaffected. An allowed origin receives
+  `Access-Control-Allow-Origin` and an answer to its preflight. This is the rule MCP sets for its own
+  HTTP transport, for the same reason. Checked by C30.
+- On a connection that arrives on a loopback address, a server **SHOULD** refuse a `Host` header
+  that does not name the machine (`localhost`, `127.0.0.1`, `::1`, or a name the operator allowed),
+  because that is what a DNS-rebinding page sends.
+- A server **SHOULD** cap request bodies and refuse larger ones with `413 TOO_LARGE` before reading
+  them in full. The reference server's limit is 1 MiB.
+
 ## Server-sent events
 
 `GET /mp/v0/subscriptions/{id}/stream` frames each observation as `id: <seq>`, `event: observation`,

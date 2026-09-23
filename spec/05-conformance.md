@@ -19,7 +19,7 @@ knows only the base URL and creates its own monitor and subscriptions.
 | C11 | A subscription without `act` calling `leases/claim` gets `403 CAPABILITY_MISSING` | P7 |
 | C12 | Two concurrent `leases/claim` on one subject: exactly one wins, the other gets `409 LEASE_HELD` naming the holder | Atrio §6 positive control |
 | C13 | `leases/complete` after the lease expired and another holder claimed is `409 LEASE_LOST` | Atrio §6 |
-| C14 | `monitors/pause`, `resume`, `retire` and `feeds/retire` each emit the corresponding `ai.mentu.monitor.*` observation | P10; Atrio silent `retire` defect |
+| C14 | `monitors/pause`, `resume`, `retire` and `feeds/retire` each emit the corresponding `ai.mentu.monitor.*` observation, and a publish while paused is refused `409 UNAVAILABLE` and accepted again after resume | P10; Atrio silent `retire` defect |
 | C15 | `monitors/state` carries `as_of`, `covers_until`, `live{value,reason}`, `confidence{inputs{present,missing},gaps}`; a missing input is listed in `missing`, never defaulted | P3 |
 | C16 | A rejected input (bad signature or invalid vocabulary) is visible as an `ai.mentu.monitor.rejected` observation | P2 |
 | C17 | A pull with `cursor` below `retention_floor` is `410 CURSOR_EXPIRED` with `retention_floor` and `relist` | 04 |
@@ -35,6 +35,7 @@ knows only the base URL and creates its own monitor and subscriptions.
 | C26 | The provenance ceiling holds for every inflation the earlier checks do not send: tier without origin, tier with a declared human origin, a human origin from a non-human actor, an agent self-certifying, an agent naming a person the monitor does not belong to; a person's observation with no tier or verification stated stops below `src` and `human_verified`; and its positive control holds: an agent naming the monitor's human owner in `on_behalf_of` reaches the owner's level, with both names kept | P1 |
 | C27 | A cursor that is not an integer is refused, in `ack` and in the pull replay | P3, P11 |
 | C28 | A stranger cannot be granted `act` by asking for it | P7 |
+| C30 | A request carrying an `Origin` the server does not allow is refused `403 ORIGIN_REFUSED`; the same request without an `Origin` is served | 03 §HTTP |
 | C29 | Every object the run received — monitor, subscription, observation, state, lease, error — validates against its schema in `schemas/` | 01 §normative schemas |
 
 ## Runners
@@ -54,7 +55,7 @@ check as `SKIP` with the reason rather than passing it. Because compaction is de
 last. Timing: a one-second lease or mute threshold is checked after 1.3 s against a server with
 millisecond clocks; a server whose timestamps are truncated to whole seconds needs ≥ 2.5 s.
 
-Passing C01–C29 (C20b included) = **conformant v0**. Thirty checks; `SKIP` is allowed for C17 on a
+Passing C01–C30 (C20b included) = **conformant v0**. Thirty-one checks; `SKIP` is allowed for C17 on a
 server that retains everything, and for C29 only in a runner that cannot read the schemas — the
 Python runner ships a subset validator so that it can.
 
