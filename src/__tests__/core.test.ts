@@ -292,6 +292,42 @@ test("the top of a ladder is asserted, never reached by leaving the field out", 
   assert.equal(s.verified, "human_verified");
 });
 
+test("a paused or retired monitor refuses new observations, and the refusal is recorded", () => {
+  const { service, monitor, owner } = fixture();
+  const reading = { type: "t.reading", data: {} };
+  service.monitorAction(monitor.id, "pause", { reason: "maintenance" }, { bearer: owner });
+  const paused = service.monitorAction(monitor.id, "observations", reading, { bearer: owner });
+  assert.equal(paused.status, 409, JSON.stringify(paused.body));
+  assert.equal((paused.body as { code: string }).code, "UNAVAILABLE");
+  service.monitorAction(monitor.id, "resume", { reason: "back" }, { bearer: owner });
+  assert.equal(service.monitorAction(monitor.id, "observations", reading, { bearer: owner }).status, 201, "resumed, it accepts again");
+  service.monitorAction(monitor.id, "retire", { reason: "done" }, { bearer: owner });
+  const retired = service.monitorAction(monitor.id, "observations", reading, { bearer: owner });
+  assert.equal(retired.status, 409);
+  assert.equal((retired.body as { code: string }).code, "UNAVAILABLE");
+  const refusals = service.store.events.filter(e => e.monitor === monitor.id && e.type === "ai.mentu.monitor.rejected");
+  assert.equal(refusals.length, 2, "both refusals are observations");
+});
+
+test("many readers waiting at once do not trip the event emitter's leak warning", async () => {
+  const warnings: string[] = [];
+  const onWarning = (w: Error) => { warnings.push(w.name); };
+  process.on("warning", onWarning);
+  try {
+    const { service, monitor, owner } = fixture();
+    const readers = Array.from({ length: 25 }, (_, i) => subscribe(service, monitor.id, `agent:r${i}`, ["observe"], { from: "head", filter: { types: ["t.reading"] } }));
+    const waits = readers.map(({ sub, token }) => service.pull(sub.id, { wait: 2 }, { bearer: token }));
+    await new Promise(r => setTimeout(r, 50));
+    service.monitorAction(monitor.id, "observations", { type: "t.reading", data: {} }, { bearer: owner });
+    const pages = await Promise.all(waits);
+    assert.ok(pages.every(p => (p.body as PullResult).observations.length === 1), "every waiting reader was woken");
+    await new Promise(r => setTimeout(r, 20));
+    assert.ok(!warnings.includes("MaxListenersExceededWarning"), warnings.join(", "));
+  } finally {
+    process.off("warning", onWarning);
+  }
+});
+
 test("an open server discloses that nobody vouched for its owners", () => {
   const open = new MonitorService(new MemoryStore());
   const m = open.createMonitor({ id: "open-posture", name: "o", owner: "human:rashid", horizon: "day", capabilities: ["observe"], visibility: "public", types: ["t.x"] });

@@ -5,7 +5,7 @@ import { MonitorService } from "../server/core.js";
 import { createHttpServer, listen } from "../server/http.js";
 import { MemoryStore } from "../store.js";
 
-const EXPECTED = Array.from({ length: 28 }, (_, i) => `C${String(i + 1).padStart(2, "0")}`);
+const EXPECTED = Array.from({ length: 30 }, (_, i) => `C${String(i + 1).padStart(2, "0")}`);
 const ADMIN = "admin-token-for-conformance";
 
 test("the reference server passes every check when compaction can be exercised", async () => {
@@ -14,7 +14,7 @@ test("the reference server passes every check when compaction can be exercised",
     const r = await runConformance(bound.url, { admin: true, adminToken: ADMIN, log: () => undefined });
     assert.equal(r.fail, 0, JSON.stringify(r.results.filter(x => x.status === "FAIL")));
     assert.equal(r.skip, 0);
-    assert.ok(r.pass >= 28, `only ${r.pass} passed`);
+    assert.ok(r.pass >= 31, `only ${r.pass} passed`);
     for (const id of EXPECTED) assert.ok(r.results.some(x => x.id === id), `missing ${id}`);
   } finally { await bound.close(); }
 });

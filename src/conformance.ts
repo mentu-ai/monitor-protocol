@@ -30,9 +30,9 @@ class Suite {
   private schemas: SchemaSet | null = null;
   constructor(readonly base: string, readonly log: (l: string) => void, readonly admin: boolean, readonly adminToken?: string) {}
 
-  private async req<T = Record<string, unknown>>(method: string, path: string, body?: unknown, token?: string | null): Promise<Res<T>> {
+  private async req<T = Record<string, unknown>>(method: string, path: string, body?: unknown, token?: string | null, extra: Record<string, string> = {}): Promise<Res<T>> {
     const res = await fetch(`${this.base}/mp/v0${path}`, {
-      method, headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      method, headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...extra },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const t = await res.text();
@@ -156,14 +156,17 @@ class Suite {
 
     const witness = await this.subscribe(mon.id, "witness", ["observe"], { filter: { types: ["ai.mentu.monitor.*"] } });
     await this.req("POST", `/monitors/${mon.id}/pause`, { reason: "c14" }, mon.token);
+    const whilePaused = await this.publish(mon.id, mon.token, { subject: "while-paused" });
     await this.req("POST", `/monitors/${mon.id}/resume`, { reason: "c14" }, mon.token);
+    const afterResume = await this.publish(mon.id, mon.token, { subject: "after-resume" });
+    const pauseHolds = whilePaused.status === 409 && whilePaused.body.code === "UNAVAILABLE" && afterResume.status === 201;
     await this.req("POST", `/subscriptions/${observer.id}/retire`, { reason: "c14" }, observer.token);
     const pwit = await this.pull(witness.id, witness.token, { limit: 200 });
     const pairs = pwit.body.observations.map(o => [o.type, ((o.data.payload ?? {}) as Record<string, unknown>).action]);
     const flat = pairs.map(x => x.join(":"));
     this.check("C14",
-      flat.includes("ai.mentu.monitor.configured:pause") && flat.includes("ai.mentu.monitor.configured:resume") && pairs.some(x => x[0] === "ai.mentu.monitor.subscription_retired"),
-      say(flat.slice(-8)));
+      flat.includes("ai.mentu.monitor.configured:pause") && flat.includes("ai.mentu.monitor.configured:resume") && pairs.some(x => x[0] === "ai.mentu.monitor.subscription_retired") && pauseHolds,
+      `${say(flat.slice(-8))}; publish while paused ${whilePaused.status} ${say(whilePaused.body)}, after resume ${afterResume.status}`);
 
     const st = await this.req<State>("GET", `/monitors/${mon.id}/state`);
     const conf = st.body.confidence;
@@ -240,7 +243,7 @@ class Suite {
 
     // C26 — the ceiling, probed with the inputs that do not make the old guard fire.
     const ceiling: [string, Record<string, unknown>][] = [
-      ["tier src, origin omitted", { tier: "src" }],
+      ["tier src, origin omitted", { tier: "src", origin: undefined }],
       ["tier src, origin human", { tier: "src", origin: "human" }],
       ["human origin from a non-human actor", { origin: "human", actor: "agent:evil" }],
       ["agent self-certifying", { origin: "agent", verification: "human_verified" }],
@@ -284,6 +287,12 @@ class Suite {
     // C28 — capabilities are granted, not requested (P7): a stranger cannot take work.
     const stranger = await this.req<{ code?: string }>("POST", "/subscriptions", { monitor: mon.id, subscriber: `stranger-${this.tag}`, capabilities: ["observe", "act"] });
     this.check("C28", stranger.status === 403 && stranger.body.code === "CAPABILITY_MISSING", `${stranger.status} ${say(stranger.body)}`);
+
+    // C30 — a local hub is reachable from every web page its user opens, and a page is not the user.
+    const foreign = await this.req<{ code?: string }>("GET", "/discover", undefined, null, { Origin: "https://conformance.invalid" });
+    const plain = await this.req("GET", "/discover");
+    this.check("C30", foreign.status === 403 && foreign.body.code === "ORIGIN_REFUSED" && plain.status === 200,
+      `foreign origin ${foreign.status} ${say(foreign.body)}, no origin ${plain.status}`, "a foreign Origin is refused, a request without one is served");
 
     // C29 — the schemas are normative, and this is what makes them so.
     const st29 = await this.req<State>("GET", `/monitors/${mon.id}/state`);

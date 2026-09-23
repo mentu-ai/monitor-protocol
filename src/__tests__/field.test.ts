@@ -8,7 +8,7 @@
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync } from "node:fs";
-import { createServer } from "node:net";
+import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { after, test } from "node:test";
@@ -195,6 +195,51 @@ test("durable: a watch keeps going when the server restarts under it", { timeout
   assert.match(watcher.out(), /^UP /m, "and that it answers again");
   await hardKill(watcher);
   await hardKill(server);
+});
+
+test("single writer: a second server on the same state file refuses to start, and a lock left by a killed server does not block the next", { timeout: 30_000 }, async () => {
+  const { state, port } = await fresh();
+  const first = await serve(port, state);
+  const second = run(["serve", "--port", String(await freePort()), "--state", state]);
+  await waitFor("the second server to refuse", () => second.exited(), 10_000)
+    .catch((e: Error) => { throw new Error(`${e.message}; second server output:\n${second.out().slice(-400)}`); });
+  assert.notEqual(second.child.exitCode, 0);
+  assert.match(second.out(), /another server/i, "it says why");
+  await hardKill(first); // leaves its lock file behind
+  const third = await serve(port, state);
+  assert.ok(third.out().includes("listening"), "a lock whose process is gone does not block the next server");
+  await hardKill(third);
+});
+
+test("durable: a watch recovers from a server that accepts connections but never answers", { timeout: 60_000 }, async () => {
+  const { state, port, base, req } = await fresh();
+  let server = await serve(port, state);
+  const owner = await createMonitor(req);
+  const reader = await subscribe(req, "agent:claude@session");
+  await hardKill(server);
+
+  const sockets = new Set<Socket>();
+  const hung = createServer((s) => { sockets.add(s); }); // accepts, never writes a byte
+  hung.unref(); // a failing run must not be kept alive by this server
+  const closeHung = async () => {
+    for (const s of sockets) s.destroy();
+    await new Promise<void>((r) => hung.close(() => r()));
+  };
+  await new Promise<void>((r) => hung.listen(port, "127.0.0.1", () => r()));
+  const watcher = run(["watch", "--base", base, "--subscription", reader.id, "--token", reader.token, "--wait", "1"]);
+  try {
+    await waitFor("the watch to notice the silent server", () => /^DOWN /m.test(watcher.out()), 30_000)
+      .catch((e: Error) => { throw new Error(`${e.message}; watch exited=${watcher.exited()}; output:\n${watcher.out().slice(-400)}`); });
+    await closeHung();
+    server = await serve(port, state);
+    await publish(req, owner, "build-1");
+    await waitFor("the watch to print build-1", () => printed(watcher.out()).includes("build-1"), 20_000);
+    assert.equal(watcher.exited(), false, "it never gave up");
+  } finally {
+    if (hung.listening) await closeHung();
+    await hardKill(watcher);
+    await hardKill(server);
+  }
 });
 
 test("shareable: readers keep their own places, filters narrow only their own reader, and late readers choose where to start", { timeout: 30_000 }, async () => {

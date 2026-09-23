@@ -19,15 +19,18 @@ import time
 import urllib.error
 import urllib.request
 
+OMIT = object()   # a publish() field marked OMIT is left out of the request entirely
+
 
 class Client:
     def __init__(self, base):
         self.base = base.rstrip("/")
 
-    def req(self, method, path, body=None, token=None, timeout=15):
+    def req(self, method, path, body=None, token=None, timeout=15, headers=None):
         h = {"Content-Type": "application/json"}
         if token:
             h["Authorization"] = "Bearer " + token
+        h.update(headers or {})
         data = json.dumps(body).encode() if body is not None else None
         r = urllib.request.Request(self.base + path, method=method, data=data, headers=h)
         try:
@@ -188,6 +191,7 @@ class Suite:
     def publish(self, mid, tok, **kw):
         body = dict({"type": "test.conformance.reading", "subject": "probe-1",
                      "data": {"value": 1}, "tier": "measured", "origin": "probe"}, **kw)
+        body = {k: v for k, v in body.items() if v is not OMIT}   # OMIT means absent, not null
         return self.c.req("POST", f"/mp/v0/monitors/{mid}/observations", body, token=tok)
 
     def pull(self, sid, tok, **q):
@@ -287,13 +291,17 @@ class Suite:
 
         wit_id, wit_tok, _ = self.subscribe(mid, "witness", filter={"types": ["ai.mentu.monitor.*"]})
         c.req("POST", f"/mp/v0/monitors/{mid}/pause", {"reason": "c14"}, token=otok)
+        st_wp, wp = self.publish(mid, otok, subject="while-paused")
         c.req("POST", f"/mp/v0/monitors/{mid}/resume", {"reason": "c14"}, token=otok)
+        st_ar, _ = self.publish(mid, otok, subject="after-resume")
+        pause_holds = st_wp == 409 and (wp or {}).get("code") == "UNAVAILABLE" and st_ar == 201
         c.req("POST", f"/mp/v0/subscriptions/{oid}/retire", {"reason": "c14"}, token=otok2)
         st, pw = self.pull(wit_id, wit_tok, limit=200)
         types = [(o["type"], (o["data"].get("payload") or {}).get("action")) for o in pw.get("observations", [])]
         have = {("ai.mentu.monitor.configured", "pause"), ("ai.mentu.monitor.configured", "resume")} <= set(types) and \
                any(t == "ai.mentu.monitor.subscription_retired" for t, _ in types)
-        self.check("C14", have, fail_note=str(types[-8:]))
+        self.check("C14", have and pause_holds,
+                   fail_note=f"{types[-8:]}; publish while paused {st_wp} {wp}, after resume {st_ar}")
 
         st, s_ = c.req("GET", f"/mp/v0/monitors/{mid}/state")
         conf = s_.get("confidence") or {}
@@ -347,7 +355,7 @@ class Suite:
 
         # C26 — the ceiling, probed with the inputs the earlier checks do not send.
         escapes = []
-        for label, body in (("tier src, origin omitted", {"tier": "src"}),
+        for label, body in (("tier src, origin omitted", {"tier": "src", "origin": OMIT}),
                             ("tier src, origin human", {"tier": "src", "origin": "human"}),
                             ("human origin from a non-human actor", {"origin": "human", "actor": "agent:evil"}),
                             ("agent self-certifying", {"origin": "agent", "verification": "human_verified"}),
@@ -421,6 +429,13 @@ class Suite:
         sup = o2.get("observation", {}).get("data", {}).get("provenance", {}).get("supersedes")
         self.check("C21", st == 201 and sup == {"source": orig["source"], "id": orig["id"]} and same
                    and same[0]["data"].get("value") == 41, fail_note=f"{sup} / {same[:1]}")
+        # C30 — a local hub is reachable from every web page its user opens, and a page is not the user.
+        st_f, f_body = c.req("GET", "/mp/v0/discover", headers={"Origin": "https://conformance.invalid"})
+        st_p, _ = c.req("GET", "/mp/v0/discover")
+        self.check("C30", st_f == 403 and (f_body or {}).get("code") == "ORIGIN_REFUSED" and st_p == 200,
+                   "a foreign Origin is refused, a request without one is served",
+                   f"foreign origin {st_f} {f_body}, no origin {st_p}")
+
         # C29 — the schemas are normative, and this is what makes them so.
         st29, st_body = c.req("GET", f"/mp/v0/monitors/{mid}/state")
         self.saw("state", "state", st_body)
