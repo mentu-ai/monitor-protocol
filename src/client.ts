@@ -2,6 +2,9 @@
 import { BASE_PATH } from "./server/http.js";
 import type { Filter } from "./types.js";
 
+/** How long an ordinary request may take before the client gives up and reports a network failure. */
+export const REQUEST_TIMEOUT_MS = 30_000;
+
 export interface ClientResult<T = unknown> { status: number; body: T }
 
 export class MonitorClient {
@@ -19,9 +22,11 @@ export class MonitorClient {
     }
     return u.toString();
   }
-  private async call<T>(method: string, path: string, opts: { body?: unknown; token?: string | null; query?: Record<string, unknown> } = {}): Promise<ClientResult<T>> {
+  private async call<T>(method: string, path: string, opts: { body?: unknown; token?: string | null; query?: Record<string, unknown>; timeoutMs?: number } = {}): Promise<ClientResult<T>> {
     const res = await this.f(this.url(path, opts.query), {
       method,
+      // A server that accepts the connection and never answers must not stall the caller forever.
+      signal: AbortSignal.timeout(opts.timeoutMs ?? REQUEST_TIMEOUT_MS),
       headers: { "Content-Type": "application/json", ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}) },
       body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
     });
@@ -46,7 +51,8 @@ export class MonitorClient {
   publish<T = unknown>(id: string, ownerToken: string, body: unknown) { return this.call<T>("POST", `/monitors/${id}/observations`, { body, token: ownerToken }); }
   subscribe<T = unknown>(body: unknown, token?: string | null) { return this.call<T>("POST", "/subscriptions", { body, token }); }
   pull<T = unknown>(sid: string, token: string, q?: { cursor?: number; wait?: number; limit?: number; filter?: Filter }) {
-    return this.call<T>("GET", `/subscriptions/${sid}/pull`, { token, query: this.flatten(q) });
+    // A long poll may legitimately take `wait` seconds; the timeout allows for that and ten more.
+    return this.call<T>("GET", `/subscriptions/${sid}/pull`, { token, query: this.flatten(q), timeoutMs: ((q?.wait ?? 0) + 10) * 1000 });
   }
   ack<T = unknown>(sid: string, token: string, cursor: number) { return this.call<T>("POST", `/subscriptions/${sid}/ack`, { body: { cursor }, token }); }
   seek<T = unknown>(sid: string, token: string, cursor: number, reason: string) { return this.call<T>("POST", `/subscriptions/${sid}/seek`, { body: { cursor, reason }, token }); }

@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { readFileSync, writeFileSync, renameSync, existsSync, mkdirSync } from "node:fs";
+import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Filter } from "./types.js";
 
@@ -52,9 +52,43 @@ export class MemoryStore extends EventEmitter {
   monitors = new Map<string, MonitorRow>();
   subscriptions = new Map<string, SubscriptionRow>();
   leases = new Map<string, LeaseRow>();
+  /** When the state file was unreadable at start, the copy this store was loaded from instead. */
+  recoveredFrom: string | null = null;
+  /** Where the unreadable state file was moved, so nobody overwrites the evidence of what broke. */
+  quarantined: string | null = null;
   constructor(readonly path?: string) {
     super();
-    if (path && existsSync(path)) this.load(JSON.parse(readFileSync(path, "utf8")) as Snapshot);
+    this.setMaxListeners(0); // every long-poll waits on "append"; twenty readers are not a leak
+    if (path) this.loadFirstGood(path);
+  }
+
+  /**
+   * Loads the newest readable copy: the state file, then a finished write that never got renamed
+   * into place, then the copy the last write replaced. If none reads, it refuses to start and
+   * changes nothing. It never starts empty over a file that exists.
+   */
+  private loadFirstGood(path: string): void {
+    const candidates = [path, `${path}.tmp`, `${path}.prev`].filter(f => existsSync(f));
+    if (!candidates.length) return;
+    const problems: string[] = [];
+    for (const file of candidates) {
+      try {
+        const snap = JSON.parse(readFileSync(file, "utf8")) as Snapshot;
+        if (!snap || typeof snap !== "object" || !Array.isArray(snap.events ?? [])) throw new Error("not a state snapshot");
+        this.load(snap);
+        if (file !== path) {
+          this.recoveredFrom = file;
+          if (existsSync(path)) {
+            this.quarantined = `${path}.corrupt-${new Date().toISOString().replace(/[:.]/g, "-")}`;
+            renameSync(path, this.quarantined);
+          }
+        }
+        return;
+      } catch (e) {
+        problems.push(`${file}: ${(e as Error).message}`);
+      }
+    }
+    throw new Error(`cannot start from ${path}: no readable copy (${problems.join("; ")}). Nothing was changed; move these files aside to start empty.`);
   }
   append(ev: Omit<LogEvent, "seq">): LogEvent {
     const row = { ...ev, seq: ++this.seq };
@@ -104,11 +138,28 @@ export class MemoryStore extends EventEmitter {
     this.subscriptions = new Map((s.subscriptions ?? []).map(x => [x.id, x]));
     this.leases = new Map((s.leases ?? []).map(l => [l.subject, l]));
   }
+  /**
+   * Written before the reply that promised it. The new copy is flushed to disk before it replaces
+   * the old one, the old one is kept as `.prev`, and the directory entry is flushed too, so a power
+   * cut leaves either the old state or the new one, never an empty file.
+   */
   persist(): void {
     if (!this.path) return;
-    mkdirSync(dirname(this.path), { recursive: true });
-    const tmp = this.path + ".tmp";
-    writeFileSync(tmp, JSON.stringify(this.snapshot()));
+    const dir = dirname(this.path);
+    mkdirSync(dir, { recursive: true });
+    const tmp = `${this.path}.tmp`;
+    const fd = openSync(tmp, "w");
+    try {
+      writeSync(fd, JSON.stringify(this.snapshot()));
+      fsyncSync(fd);
+    } finally {
+      closeSync(fd);
+    }
+    if (existsSync(this.path)) renameSync(this.path, `${this.path}.prev`);
     renameSync(tmp, this.path);
+    try {
+      const dfd = openSync(dir, "r");
+      try { fsyncSync(dfd); } finally { closeSync(dfd); }
+    } catch { /* some platforms cannot open a directory; the file itself is already flushed */ }
   }
 }

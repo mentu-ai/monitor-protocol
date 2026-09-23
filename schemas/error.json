@@ -22,7 +22,10 @@
     "LEASE_HELD",
     "LEASE_LOST",
     "EVIDENCE_REQUIRED",
-    "OVER_BUDGET"
+    "OVER_BUDGET",
+    "ORIGIN_REFUSED",
+    "TOO_LARGE",
+    "UNAVAILABLE"
    ]
   },
   "error": {
@@ -30,7 +33,7 @@
   },
   "done": {
    "type": "array",
-   "description": "what was applied before the refusal (Atrio \u00a75)"
+   "description": "what was applied before the refusal (Atrio §5)"
   }
  },
  "required": [

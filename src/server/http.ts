@@ -2,6 +2,7 @@
  * REST + JSON-RPC + SSE door (spec/02-methods.md §REST binding). All semantics live in
  * MonitorService; this file only maps HTTP onto it.
  */
+import { createHash, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { FILTER_KEYS } from "../filter.js";
 import type { Filter, Result } from "../types.js";
@@ -18,6 +19,15 @@ export interface HttpOptions {
   allowAdmin?: boolean;
   adminToken?: string;
   log?: (line: string) => void;
+  /**
+   * Browser origins allowed to call this server, such as "https://dash.example". A request from any
+   * other web page is refused, because a site the user happens to open is not the user.
+   */
+  allowOrigins?: string[];
+  /** Host names to accept on loopback connections besides localhost, 127.0.0.1 and ::1 (P7). */
+  allowHosts?: string[];
+  /** The largest request body read, in bytes. Default 1 MiB. */
+  maxBodyBytes?: number;
 }
 
 const json = (res: ServerResponse, r: Result): void => {
@@ -31,13 +41,41 @@ const bearerOf = (req: IncomingMessage): string | null => {
   return h.toLowerCase().startsWith("bearer ") ? h.slice(7).trim() : null;
 };
 
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown> | null> {
-  const chunks: Buffer[] = [];
-  for await (const c of req) chunks.push(c as Buffer);
-  const raw = Buffer.concat(chunks).toString("utf8").trim();
-  if (!raw) return {};
-  try { return JSON.parse(raw) as Record<string, unknown>; } catch { return null; }
+export const DEFAULT_MAX_BODY_BYTES = 1024 * 1024;
+const TOO_LARGE = Symbol("too large");
+
+/** Reads at most `max` bytes; past that it stops collecting and says so, so one request cannot exhaust memory. */
+function readBody(req: IncomingMessage, max: number): Promise<Record<string, unknown> | null | typeof TOO_LARGE> {
+  const declared = Number(req.headers["content-length"]);
+  if (Number.isFinite(declared) && declared > max) return Promise.resolve(TOO_LARGE);
+  return new Promise(resolve => {
+    const chunks: Buffer[] = [];
+    let size = 0;
+    const onData = (c: Buffer) => {
+      size += c.length;
+      if (size > max) { req.off("data", onData); req.off("end", onEnd); req.pause(); resolve(TOO_LARGE); return; }
+      chunks.push(c);
+    };
+    const onEnd = () => {
+      const raw = Buffer.concat(chunks).toString("utf8").trim();
+      if (!raw) return resolve({});
+      try { resolve(JSON.parse(raw) as Record<string, unknown>); } catch { resolve(null); }
+    };
+    req.on("data", onData);
+    req.on("end", onEnd);
+    req.on("error", () => resolve(null));
+  });
 }
+
+const LOOPBACK_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+const LOOPBACK_NAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+const hostName = (host: string): string => {
+  if (host.startsWith("[")) return host.slice(1, host.indexOf("]")).toLowerCase();
+  const colon = host.lastIndexOf(":");
+  return (colon > -1 && host.indexOf(":") === colon ? host.slice(0, colon) : host).toLowerCase();
+};
+const sameSecret = (a: string, b: string): boolean =>
+  timingSafeEqual(createHash("sha256").update(a).digest(), createHash("sha256").update(b).digest());
 
 /** Query params that are filter keys become the inline filter; `cursor`, `wait` and `limit` are pull params. */
 export function filterFromQuery(sp: URLSearchParams): Filter {
@@ -90,12 +128,36 @@ export function createHttpServer(service: MonitorService, opts: HttpOptions = {}
   };
 
   const adminOk = (bearer: string | null): boolean =>
-    opts.allowAdmin === true && !!opts.adminToken && bearer === opts.adminToken;
+    opts.allowAdmin === true && !!opts.adminToken && !!bearer && sameSecret(bearer, opts.adminToken);
+  const allowOrigins = new Set(opts.allowOrigins ?? []);
+  const allowHosts = new Set((opts.allowHosts ?? []).map(h => h.toLowerCase()));
+  const maxBody = opts.maxBodyBytes ?? DEFAULT_MAX_BODY_BYTES;
+  /** On a loopback connection the Host must name this machine: DNS rebinding sends another name. */
+  const hostOk = (req: IncomingMessage): boolean => {
+    const host = req.headers.host;
+    if (!host) return true;
+    const name = hostName(host);
+    if (allowHosts.has(name) || allowHosts.has(host.toLowerCase())) return true;
+    if (!LOOPBACK_ADDRESSES.has(req.socket.localAddress ?? "")) return true; // a public bind answers to whatever names its operator gives it
+    return LOOPBACK_NAMES.has(name);
+  };
 
   return createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://localhost");
     const path = url.pathname;
     try {
+      // A local hub is reachable from every web page its user opens. A page is not the user (C30).
+      const origin = req.headers.origin;
+      if (origin !== undefined && !allowOrigins.has(origin))
+        return json(res, err("ORIGIN_REFUSED", `requests from web pages on ${origin} are refused; start the server with --allow-origin ${origin} to allow one`));
+      if (!hostOk(req))
+        return json(res, err("ORIGIN_REFUSED", `the Host ${req.headers.host} does not name this server; requests reached through another name are refused`));
+      if (origin !== undefined) { res.setHeader("Access-Control-Allow-Origin", origin); res.setHeader("Vary", "Origin"); }
+      if (req.method === "OPTIONS") {
+        if (origin === undefined) return json(res, err("NOT_FOUND", "unknown route"));
+        res.writeHead(204, { "Access-Control-Allow-Methods": "GET, POST, OPTIONS", "Access-Control-Allow-Headers": "Authorization, Content-Type, Last-Event-ID", "Access-Control-Max-Age": "600" });
+        return res.end();
+      }
       if (!path.startsWith(BASE_PATH)) return json(res, err("NOT_FOUND", "unknown route; the protocol is served under /mp/v0"));
       service.sweep();
       const p = path.slice(BASE_PATH.length) || "/";
@@ -132,7 +194,12 @@ export function createHttpServer(service: MonitorService, opts: HttpOptions = {}
       }
 
       if (method === "POST") {
-        const body = await readBody(req);
+        const body = await readBody(req, maxBody);
+        if (body === TOO_LARGE) {
+          res.setHeader("Connection", "close");
+          res.on("finish", () => req.destroy());
+          return json(res, err("TOO_LARGE", `request bodies over ${maxBody} bytes are refused`, { limit_bytes: maxBody }));
+        }
         if (body === null) return json(res, err("INVALID", "body is not valid JSON"));
         if (p === "/rpc") {
           const batch = Array.isArray(body) ? (body as unknown as Record<string, unknown>[]) : [body];

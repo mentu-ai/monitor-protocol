@@ -13,6 +13,7 @@ import { MCP_TOOL_DEFINITIONS, serveMcp } from "./server/mcp.js";
 import { printSummary, runConformance } from "./conformance.js";
 import { watch } from "./watch.js";
 import { expandHome } from "./paths.js";
+import { acquireStateLock } from "./lock.js";
 
 export * from "./vocab.js";
 export * from "./types.js";
@@ -32,6 +33,7 @@ const USAGE = `monitor-protocol: monitors that keep watching, remember what they
 
   serve [--port 8130] [--host 127.0.0.1] [--state <file.json, ~ allowed>] [--allow-admin[=token]]
         [--registration-token <tok>] [--retire-after-mute <seconds>]
+        [--allow-origin <origin,...>] [--allow-host <name,...>] [--max-body <bytes>]
         Serve the REST + JSON-RPC + SSE binding under /mp/v0. --allow-admin mints an admin token
         and prints it; --registration-token makes monitor creation attested.
   mcp   [--state <file.json>]
@@ -65,7 +67,15 @@ const str = (f: Flags, k: string, d = ""): string => (typeof f[k] === "string" ?
 const num = (f: Flags, k: string, d: number): number => (typeof f[k] === "string" ? Number(f[k]) : d);
 
 function makeService(flags: Flags): MonitorService {
-  const store = new MemoryStore(typeof flags.state === "string" ? expandHome(flags.state) : undefined);
+  const statePath = typeof flags.state === "string" ? expandHome(flags.state) : undefined;
+  if (statePath) {
+    const release = acquireStateLock(statePath);
+    process.on("exit", release);
+    for (const signal of ["SIGINT", "SIGTERM"] as const) process.once(signal, () => process.exit(0));
+  }
+  const store = new MemoryStore(statePath);
+  // stderr, not stdout: in mcp mode stdout is the protocol channel.
+  if (store.recoveredFrom) console.error(`recovered from ${store.recoveredFrom}; the unreadable state file was kept as ${store.quarantined ?? "(missing)"}`);
   const retire = num(flags, "retire-after-mute", 604800);
   const registrationToken = typeof flags["registration-token"] === "string" ? (flags["registration-token"] as string) : undefined;
   return new MonitorService(store, { retireAfterMuteDefault: retire, registrationToken });
@@ -86,7 +96,11 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
       const allowAdmin = flags["allow-admin"] === true || typeof flags["allow-admin"] === "string";
       const adminToken = typeof flags["allow-admin"] === "string" ? (flags["allow-admin"] as string)
         : allowAdmin ? randomBytes(16).toString("base64url") : undefined;
-      const server = createHttpServer(service, { allowAdmin, adminToken });
+      const list = (k: string) => typeof flags[k] === "string" ? (flags[k] as string).split(",").map(x => x.trim()).filter(Boolean) : [];
+      const server = createHttpServer(service, {
+        allowAdmin, adminToken, allowOrigins: list("allow-origin"), allowHosts: list("allow-host"),
+        maxBodyBytes: typeof flags["max-body"] === "string" ? num(flags, "max-body", 1024 * 1024) : undefined,
+      });
       const { url } = await listen(server, num(flags, "port", 8130), str(flags, "host", "127.0.0.1"));
       const d = service.discover().body as { supportedVersions: string[]; limits: Record<string, unknown> };
       console.log(`listening ${url}/mp/v0, protocol ${d.supportedVersions.join(",")}, monitors ${service.store.monitors.size}, head ${service.store.head()}`);

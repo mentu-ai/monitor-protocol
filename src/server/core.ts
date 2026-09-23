@@ -311,6 +311,15 @@ export class MonitorService {
    * and every state.
    */
   publish(m: MonitorRow, b: Record<string, unknown>): Result {
+    // A paused or retired monitor is not listening. Accepting the write anyway would make pause a
+    // label rather than a state; refusing it silently would lose it. So it is refused, and recorded.
+    if (!m.active || m.paused) {
+      const why = !m.active ? "retired" : "paused";
+      const ev = this.log(m.id, PROTO_TYPES.rejected, (b.subject as string) ?? null, "system:guard", "system",
+        { code: "UNAVAILABLE", reason: `the monitor is ${why}`, raw: b, actor: String(b.actor ?? m.owner) });
+      return err("UNAVAILABLE", `the monitor is ${why}; ${why === "paused" ? "resume it" : "it no longer accepts observations"}`,
+        { rejected_seq: ev.seq, live: { value: false, reason: why } });
+    }
     const type = String(b.type ?? "");
     const actor = String(b.actor ?? m.owner);
     // The person an agent acts for is the one the monitor already belongs to: holding its token is

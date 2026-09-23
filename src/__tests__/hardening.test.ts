@@ -40,8 +40,7 @@ const monitorBody = (id: string, name = id) =>
   JSON.stringify({ id, name, horizon: "day", capabilities: ["observe"], visibility: "public" });
 
 const service = new MonitorService(new MemoryStore());
-// Options reached through an untyped path, so this file compiles on the parent and fails there by name.
-const server = createHttpServer(service, { allowOrigins: ["https://dash.example"] } as never);
+const server = createHttpServer(service, { allowOrigins: ["https://dash.example"] });
 const bound = await listen(server, 0);
 after(() => bound.close());
 
@@ -81,7 +80,7 @@ test("a Host that does not name this server is refused on a loopback connection,
 });
 
 test("a body over the limit is refused with 413 before it is read in full", async () => {
-  const small = await listen(createHttpServer(new MonitorService(new MemoryStore()), { maxBodyBytes: 1024 } as never), 0);
+  const small = await listen(createHttpServer(new MonitorService(new MemoryStore()), { maxBodyBytes: 1024 }), 0);
   try {
     const big = monitorBody("big", "x".repeat(4096));
     const declared = await raw(small.port, {
@@ -112,7 +111,7 @@ test("a corrupt state file falls back to the newest good copy, is kept aside for
   writeFileSync(path, "{ this is not json");
   const recovered = new MemoryStore(path);
   assert.ok(recovered.monitors.has("kept"), "it starts from the previous good copy");
-  assert.match(String((recovered as unknown as { recoveredFrom?: string }).recoveredFrom), /state\.json\.prev$/, "and says which file it used");
+  assert.match(String(recovered.recoveredFrom), /state\.json\.prev$/, "and says which file it used");
   const aside = readdirSync(dir).filter((f) => f.startsWith("state.json.corrupt-"));
   assert.equal(aside.length, 1, "the broken file is kept under a new name, not overwritten");
   assert.equal(readFileSync(join(dir, aside[0]), "utf8"), "{ this is not json");
