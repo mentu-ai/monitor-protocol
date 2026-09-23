@@ -15,7 +15,6 @@ import { after, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = Record<string, any>;
 type Req = (method: string, path: string, body?: unknown, token?: string) => Promise<{ status: number; body: Json }>;
 
@@ -192,6 +191,8 @@ test("durable: a watch keeps going when the server restarts under it", { timeout
   await waitFor("the watch to print build-2 after the restart", () => printed(watcher.out()).includes("build-2"), 15_000)
     .catch((e: Error) => { throw new Error(`${e.message}; watch exited=${watcher.exited()}; output:\n${watcher.out().slice(-600)}`); });
   assert.equal(watcher.exited(), false, "the watch is still running");
+  assert.match(watcher.out(), /^DOWN /m, "it said once that the server was away");
+  assert.match(watcher.out(), /^UP /m, "and that it answers again");
   await hardKill(watcher);
   await hardKill(server);
 });

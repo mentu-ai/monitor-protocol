@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **`watch` keeps going when its server restarts.** A network failure used to end the process
+  with `fetch failed`, which is exactly what a Claude Code Monitor meets when the hub restarts. It
+  now prints `DOWN` once, waits (1 s, doubling to at most 10 s), tries again, and prints `UP` when
+  the server answers. The subscription's cursor keeps the place, so nothing is lost; a batch whose
+  acknowledgement could not be sent comes back marked redelivered.
+- **Field tests.** `src/__tests__/field.test.ts` starts the server as its own process, kills it
+  with SIGKILL and restarts it on the same state file, to test the three promises for real:
+  acknowledged writes, tokens and cursors survive; readers keep their own places and filters;
+  provenance and refusals stay in the record; the MCP stdio server keeps its monitors. The watch
+  restart test failed before the fix above.
+
 ## v0.1.2
 
 Released 2026-09-22.
