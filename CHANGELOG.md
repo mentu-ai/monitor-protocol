@@ -1,5 +1,32 @@
 # Changelog
 
+## v0.2.0
+
+Released 2026-10-07. Four behaviour changes, so the minor version moves: a name is not a key, a dead
+letter stays dead, printing is not handling, and a subscription claims only what its own monitor
+published. The reasoning, the reproductions and the compatibility notes are in
+`docs/proposals/subscriber-key-dead-letter-ack.md`.
+
+- **A subscriber's name is not a credential.** Subscribing again under an existing subscriber name
+  re-keys that subscription only with its current token or the monitor owner's. Anyone else is
+  refused `UNAUTHORIZED`. Before, a token-less re-subscribe under someone else's name took their
+  subscription over. C32 checks it.
+- **A dead letter stays dead.** The reject that reaches `delivery_count_limit` marks the lease
+  `dead_letter: true`, and every later claim, by anyone, is refused with the new code
+  `DEAD_LETTERED`. Retrying is a new publication; there is no `requeue`. Before, the next claim
+  simply succeeded. C33 checks it.
+- **`watch` acknowledges nothing it has only printed.** After each batch it prints
+  `NEXT <cursor>`, and the session runs the new `ack` command once it has handled the batch. A
+  session that dies before handling loses nothing. `--ack-on-print` restores the 0.1.3 behaviour.
+- **A subscription claims only what its own monitor published.** A claim of a subject the
+  subscription's monitor never published is refused `NOT_FOUND`, before any other answer, so no
+  subscription to another monitor can hold or dead-letter it. The index of published subjects
+  survives compaction and a restart, and is rebuilt from the log for older state files. A monitor
+  that publishes the same subject still contends for it; on an untrusted server, attested monitors
+  (`--registration-token`) are what limit that. C34 checks it.
+- **Conformance** now has 34 checks (C32, C33 and C34 are new), in both the TypeScript and the
+  Python runner. The runners publish their lease subjects before claiming them.
+
 ## v0.1.3
 
 Released 2026-09-23. A hardening release: what a local hub must refuse, and what it must survive.
