@@ -59,7 +59,7 @@ processing is the only way to lose an observation, which is why `pull` never com
 | REST + JSON-RPC (`/mp/v0`) | scripts, other services, the Python conformance runner | `node:http` only, no dependencies |
 | SSE (`/subscriptions/{id}/stream`) | browsers and long-lived readers | `id:` is the seq, `Last-Event-ID` resumes, heartbeat every 5 s; only `ack` commits |
 | MCP extension `ai.mentu/monitors` | AI hosts | tools plus `monitor://{id}/definition` and `monitor://{id}/state`; `resources/updated` is the wake-up |
-| `watch` loop | a Claude Code Monitor arm | prints one line per observation and acks after printing |
+| `watch` loop | a Claude Code Monitor arm | prints one line per observation and `NEXT <cursor>`; the session acks after handling (`ack`) |
 
 The installed MCP SDK has no `extensions` field on server capabilities, so the extension id
 currently travels under `experimental`; the name is the one the spec fixes.

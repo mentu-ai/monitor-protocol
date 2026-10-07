@@ -33,9 +33,17 @@ subscription id is ours and durable; MCP's `subscriptionId` is only the listen s
 ## Claude Code Monitor tool (the simplest client)
 
 `Monitor(command: "<impl> watch <subscription-id> --catch-up-first")` where `watch` runs the
-pull/ack loop and prints one line per observation (`seq type subject tier actor`). One arm per
+pull loop and prints one line per observation (`seq type subject tier actor`). One arm per
 session against the hub; re-arm at the 30-minute deadline; `--catch-up` prints the backlog
 without acking so the session sees what it missed (Atrio inbox standard).
+
+Printing is not handling. `watch` **MUST NOT** acknowledge what it has only printed: after each
+batch it prints `NEXT <cursor>` and reads on from there without committing, and the session
+acknowledges with `<impl> ack --cursor <n>` after it has handled the batch (the Desk Protocol's
+"acknowledge after handling"). A session that dies between printing and handling loses nothing: the
+next `watch` starts from the last acknowledged cursor, and the batch comes back marked
+`redelivered`. An implementation MAY keep an opt-in `--ack-on-print` for consumers that accept that
+loss window; it is never the default.
 
 ## HTTP: who may call a local server
 

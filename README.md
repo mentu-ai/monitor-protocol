@@ -86,7 +86,7 @@ Or follow a subscription from a session with the Monitor tool:
 Monitor(command: "npx -y @mentu/monitor-protocol watch --base http://localhost:8130 --subscription <id> --token <token> --catch-up")
 ```
 
-The watch prints one line per observation and acknowledges each batch after printing it. When the Monitor's time runs out, start it again. The subscription remembers its place, so nothing is missed. If the server restarts, the watch prints `DOWN`, waits, and carries on when the server is back. The guide [Claude Code and MCP](https://docs.mentu.ai/monitor-protocol/claude-code) covers both, and the tools.
+The watch prints one line per observation and, after each batch, `NEXT <cursor>`. It acknowledges nothing: once the session has handled the batch, it runs `monitor-protocol ack --cursor <n>`. When the Monitor's time runs out, start it again. The subscription remembers the last place the session acknowledged, so nothing is missed, not even a batch printed to a session that died before handling it. If the server restarts, the watch prints `DOWN`, waits, and carries on when the server is back. The guide [Claude Code and MCP](https://docs.mentu.ai/monitor-protocol/claude-code) covers both, and the tools.
 
 ## Safe by default on your machine
 

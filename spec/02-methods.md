@@ -15,13 +15,13 @@ Reserved method prefixes (MCP Tasks' pattern): `monitors/`, `feeds/`, `leases/`,
 | `monitors/pause` · `monitors/resume` · `monitors/retire` | owner | `{id, reason}` | `Monitor` + `…configured` | `NOT_FOUND` |
 | `monitors/state` | anyone the visibility allows | `{id}` | `State` | `NOT_FOUND` |
 | `monitors/publish` | owner (the producer) | `{id, type, subject?, data, tier?, origin?, verification?, actor?, on_behalf_of?, rule?, wasDerivedFrom?, supersedes?}` | `{observation: Observation, seq}` + the row in the monitor's log. `origin` defaults from the actor's kind, `verification` from origin. `on_behalf_of`, when given, must be the monitor's owner (P1). A refusal is itself an `…rejected` observation (P2). | `UNKNOWN_VOCABULARY`, `TIER_NOT_ASSERTABLE`, `PROVENANCE_CEILING` |
-| `feeds/subscribe` | anyone the visibility allows | `{monitor, subscriber, filter?, capabilities, protocol?, sink?, from?: "head"|"earliest"|int, reset_policy?}` | `{subscription: Subscription, token}` (token once) + emits `…subscribed` | `INVALID_FILTER`, `CAPABILITY_MISSING` (grant smaller than asked), `CURSOR_BACKWARDS` (explicit `from` below stored) |
+| `feeds/subscribe` | anyone the visibility allows; for a `subscriber` that already has a subscription on the monitor, only its current token or the owner token (re-keying) | `{monitor, subscriber, filter?, capabilities, protocol?, sink?, from?: "head"|"earliest"|int, reset_policy?}` | `{subscription: Subscription, token}` (token once) + emits `…subscribed` | `INVALID_FILTER`, `CAPABILITY_MISSING` (grant smaller than asked), `CURSOR_BACKWARDS` (explicit `from` below stored), `UNAUTHORIZED` (re-keying someone else's subscription) |
 | `feeds/pull` | bearer | `{subscription, cursor?, wait?, limit?, filter?}` | `{observations:[Observation], cursor, next, head, lag, retention_floor, redelivered:int}`; does **not** advance the cursor; `cursor` param is a read-only replay ≥ `retention_floor`; inline `filter` intersects, never widens | `UNAUTHORIZED`, `CURSOR_EXPIRED` (410 semantics: `{retention_floor, relist: "monitors/state"}`) |
 | `feeds/ack` | bearer | `{subscription, cursor}` | `{cursor, head, lag}` — cumulative commit; below stored → `CURSOR_BACKWARDS`; equal → no-op returning prior result (idempotent) | |
 | `feeds/seek` | bearer | `{subscription, cursor, reason}` | `{cursor}` + emits `…subscribed{seek}` — the only way backwards, explicit and logged | `CURSOR_EXPIRED` |
 | `feeds/renew` | bearer | `{subscription}` | `{subscription, token}` — new token, same cursor | |
 | `feeds/retire` | bearer | `{subscription, reason}` | `{ok}` + emits `…subscription_retired` and releases leases | |
-| `leases/claim` | bearer + `act` | `{subscription, subject, lease_duration_seconds, note}` | `Lease` + `…lease{claim}`; one conditional write; held → `LEASE_HELD{holder, renew_time}` | `CAPABILITY_MISSING` |
+| `leases/claim` | bearer + `act` | `{subscription, subject, lease_duration_seconds, note}` | `Lease` + `…lease{claim}`; one conditional write; held → `LEASE_HELD{holder, renew_time}`; dead-lettered → `DEAD_LETTERED{attempts, delivery_count_limit}`; a subject the subscription's own monitor never published → `NOT_FOUND{subject, monitor}` | `CAPABILITY_MISSING` |
 | `leases/renew` | bearer + `act` | `{subscription, subject, lease_duration_seconds?, note}` | `Lease` | `LEASE_LOST` |
 | `leases/complete` | bearer + `act` | `{subscription, subject, outcome, evidence:[{source,id}], note}` | `{ok}` + `…lease{complete}`; conditioned on still holding; an implementation MAY require `evidence` (Atrio does for tickets) | `LEASE_LOST`, `EVIDENCE_REQUIRED` |
 | `leases/release` · `leases/reject` | bearer + `act` | `{subscription, subject, reason}` | `{ok}` + `…lease{release|reject}`; `reject` after `delivery_count_limit` dead-letters | |
@@ -35,7 +35,7 @@ The name `code` therefore means the string over REST and the number over JSON-RP
 carries the string in both. The closed list: `INVALID_FILTER` · `UNKNOWN_VOCABULARY` · `TIER_NOT_ASSERTABLE`
 · `PROVENANCE_CEILING` · `INVALID` · `CAPABILITY_MISSING` · `UNAUTHORIZED` · `NOT_FOUND` · `DUPLICATE` ·
 `CURSOR_BACKWARDS` · `CURSOR_EXPIRED` · `LEASE_HELD` · `LEASE_LOST` · `EVIDENCE_REQUIRED` ·
-`OVER_BUDGET` · `ORIGIN_REFUSED` · `TOO_LARGE` · `UNAVAILABLE`. `data`
+`OVER_BUDGET` · `ORIGIN_REFUSED` · `TOO_LARGE` · `UNAVAILABLE` · `DEAD_LETTERED`. `data`
 always names what was done before the refusal (`done: []`) when a compound request partially
 applied (Atrio §5).
 
@@ -57,6 +57,6 @@ applied (Atrio §5).
 
 HTTP status mapping: `INVALID_FILTER`/`UNKNOWN_VOCABULARY`/`TIER_NOT_ASSERTABLE` → 400 ·
 `UNAUTHORIZED` → 401 · `CAPABILITY_MISSING`/`PROVENANCE_CEILING`/`ORIGIN_REFUSED` → 403 · `NOT_FOUND` → 404 ·
-`DUPLICATE`/`CURSOR_BACKWARDS`/`LEASE_HELD`/`LEASE_LOST`/`EVIDENCE_REQUIRED`/`UNAVAILABLE` → 409 ·
+`DUPLICATE`/`CURSOR_BACKWARDS`/`LEASE_HELD`/`LEASE_LOST`/`EVIDENCE_REQUIRED`/`UNAVAILABLE`/`DEAD_LETTERED` → 409 ·
 `CURSOR_EXPIRED` → 410 · `TOO_LARGE` → 413 · `OVER_BUDGET` → 429. Bearer token in `Authorization: Bearer`.
 A publish to a paused or retired monitor is refused with `UNAVAILABLE`, and the refusal is recorded (P2).

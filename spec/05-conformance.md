@@ -24,7 +24,7 @@ knows only the base URL and creates its own monitor and subscriptions.
 | C16 | A rejected input (bad signature or invalid vocabulary) is visible as an `ai.mentu.monitor.rejected` observation | P2 |
 | C17 | A pull with `cursor` below `retention_floor` is `410 CURSOR_EXPIRED` with `retention_floor` and `relist` | 04 |
 | C18 | A private monitor is absent from `monitors/list` without its bearer and present with it | P14 |
-| C19 | A subscription mute past `retire_after_mute_seconds` is retired and `…subscription_retired` is emitted; re-subscribing keeps the cursor | P6 |
+| C19 | A subscription mute past `retire_after_mute_seconds` is retired and `…subscription_retired` is emitted; re-subscribing with its token keeps the cursor | P6 |
 | C20 | Re-sending an identical `ack` or `claim` returns the prior result | 04 idempotence |
 | C21 | Corrections: a superseding observation carries `data.provenance.supersedes` and the original is unchanged | P13 |
 | C20b | Re-claiming a lease the subscription already holds returns the same lease, not a conflict | 04 idempotence |
@@ -36,6 +36,9 @@ knows only the base URL and creates its own monitor and subscriptions.
 | C27 | A cursor that is not an integer is refused, in `ack` and in the pull replay | P3, P11 |
 | C28 | A stranger cannot be granted `act` by asking for it | P7 |
 | C30 | A request carrying an `Origin` the server does not allow is refused `403 ORIGIN_REFUSED`; the same request without an `Origin` is served | 03 §HTTP |
+| C32 | Re-subscribing an existing subscriber without its token or the owner's is refused `401 UNAUTHORIZED`, and the holder's token keeps working | 01 §Subscription, 02 `feeds/subscribe` |
+| C33 | Once a `reject` reaches `delivery_count_limit` (`dead_letter: true`), a claim on that subject by another subscription is refused `409 DEAD_LETTERED` | 04 §Attempt cap |
+| C34 | A subscription to a monitor that never published a subject is refused `404 NOT_FOUND` when it claims it, so it can neither hold nor dead-letter it | 02 `leases/claim`, 04 §Attempt cap |
 | C29 | Every object the run received — monitor, subscription, observation, state, lease, error — validates against its schema in `schemas/` | 01 §normative schemas |
 
 ## Runners
@@ -55,7 +58,7 @@ check as `SKIP` with the reason rather than passing it. Because compaction is de
 last. Timing: a one-second lease or mute threshold is checked after 1.3 s against a server with
 millisecond clocks; a server whose timestamps are truncated to whole seconds needs ≥ 2.5 s.
 
-Passing C01–C30 (C20b included) = **conformant v0**. Thirty-one checks; `SKIP` is allowed for C17 on a
+Passing C01–C30 and C32–C34 (C20b included) = **conformant v0**. Thirty-four checks; `SKIP` is allowed for C17 on a
 server that retains everything, and for C29 only in a runner that cannot read the schemas — the
 Python runner ships a subset validator so that it can.
 

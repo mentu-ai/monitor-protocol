@@ -114,13 +114,19 @@ Served by `monitors/state` and also emitted as an Observation of type `ai.mentu.
 | `created`, `last_pull`, `active`, `lag` | | | `lag` is the number of observations this subscription would receive if it pulled now, **its own filter included** (P5). Never `head − cursor` over a shared counter. An implementation may bound the count and say so. |
 
 The bearer token is returned once at creation and stored hashed. Re-creating with the same
-`(monitor, subscriber)` renews the token and keeps the cursor.
+`(monitor, subscriber)` re-keys that subscription: a new token, the same id and cursor. A
+subscriber's name is not a credential, so re-creating needs the subscription's current token or the
+monitor's owner token; anyone else is refused `UNAUTHORIZED`, and the holder's token keeps working.
 
 **Lease** (on `act`): `{subject, holder: subscription.id, lease_duration_seconds, acquire_time,
-renew_time, lease_transitions, attempts, delivery_count_limit}` — Kubernetes Lease field names;
-expiry rule `now > renew_time + lease_duration_seconds`; Kafka share-group vocabulary for the
+renew_time, lease_transitions, attempts, delivery_count_limit, dead_letter}` — Kubernetes Lease field
+names; expiry rule `now > renew_time + lease_duration_seconds`; Kafka share-group vocabulary for the
 outcomes: `release` (back to the queue), `reject` (dead-letter after `delivery_count_limit`),
-`complete`.
+`complete`. A dead letter is state, not only a word in the log: the `reject` that reaches
+`delivery_count_limit` sets `dead_letter: true`, and the subject is never claimed again
+(`DEAD_LETTERED`). Retrying it is a new publication. A subscription claims only subjects its own
+monitor has published (`NOT_FOUND` otherwise); the server keeps which monitor published which subject
+apart from the log, so compaction does not forget it.
 
 ## 5. Configure — mutation as evidence
 
