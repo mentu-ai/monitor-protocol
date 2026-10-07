@@ -160,7 +160,11 @@ test("durable: a watch that is stopped and started again prints exactly what arr
   const first = run(args);
   for (const s of ["build-1", "build-2"]) await publish(req, owner, s);
   await waitFor("the first watch to print both builds", () => printed(first.out()).includes("build-2"));
-  await sleep(300); // it acknowledges right after printing
+  // The session handles both builds, then acknowledges up to the cursor `watch` printed.
+  const next = [...first.out().matchAll(/^NEXT (\d+)$/gm)].pop()?.[1];
+  assert.ok(next, `watch prints the cursor to acknowledge:\n${first.out()}`);
+  const acked = run(["ack", "--base", base, "--subscription", reader.id, "--token", reader.token, "--cursor", next]);
+  await waitFor("the acknowledgement", () => acked.exited());
   first.child.kill("SIGTERM"); // the Monitor tool's deadline, in miniature
   await waitFor("the first watch to stop", () => first.exited());
 

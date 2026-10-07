@@ -57,6 +57,7 @@ test("one holder wins a lease; an expired lease is lost, not stolen silently", a
   const { service, monitor, owner } = fixture();
   const a = subscribe(service, monitor.id, "agent:a", ["observe", "act"], {}, owner);
   const b = subscribe(service, monitor.id, "agent:b", ["observe", "act"], {}, owner);
+  for (const s of ["s1", "s2"]) service.monitorAction(monitor.id, "observations", { type: "t.reading", subject: s, data: {} }, { bearer: owner });
   const first = service.leaseAction(a.sub.id, "claim", { subject: "s1", lease_duration_seconds: 60 }, { bearer: a.token });
   const second = service.leaseAction(b.sub.id, "claim", { subject: "s1", lease_duration_seconds: 60 }, { bearer: b.token });
   assert.equal(first.status, 201);
@@ -124,7 +125,7 @@ test("a mute subscription is retired with a will event and keeps its cursor", as
   const gone = await service.pull(sub.id, {}, { bearer: token });
   assert.equal(gone.status, 404);
   assert.equal((gone.body as unknown as { retired: boolean }).retired, true);
-  const back = service.subscribe({ monitor: monitor.id, subscriber: "agent:mute", capabilities: ["observe"] }, { bearer: null });
+  const back = service.subscribe({ monitor: monitor.id, subscriber: "agent:mute", capabilities: ["observe"] }, { bearer: token });
   assert.equal((back.body as { subscription: Subscription }).subscription.cursor, page.next);
   assert.equal((back.body as { subscription: Subscription }).subscription.id, sub.id);
 });
