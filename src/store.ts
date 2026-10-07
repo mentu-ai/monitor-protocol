@@ -2,6 +2,7 @@ import { EventEmitter } from "node:events";
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeSync } from "node:fs";
 import { dirname } from "node:path";
 import type { Filter } from "./types.js";
+import { PROTO_TYPE_LIST } from "./vocab.js";
 
 /** One row of a monitor's log. Bookkeeping observations live here too, with a protocol `type`. */
 export interface LogEvent {
@@ -30,9 +31,15 @@ export interface SubscriptionRow {
 export interface LeaseRow {
   subject: string; holder: string | null; lease_duration_seconds: number; acquire_time: string; renew_time: string;
   expires: string; lease_transitions: number; attempts: number; delivery_count_limit: number; monitor: string;
+  /** Set by the `reject` that reaches `delivery_count_limit`; a dead-lettered subject is never claimed again. */
+  dead_letter?: boolean;
 }
 
-export interface Snapshot { seq: number; floor: number; events: LogEvent[]; monitors: MonitorRow[]; subscriptions: SubscriptionRow[]; leases: LeaseRow[] }
+export interface Snapshot {
+  seq: number; floor: number; events: LogEvent[]; monitors: MonitorRow[]; subscriptions: SubscriptionRow[]; leases: LeaseRow[];
+  /** Subjects each monitor has published, by monitor id. Kept apart from the log so compaction does not forget them. */
+  published?: Record<string, string[]>;
+}
 
 /**
  * In-memory store with optional JSON snapshot persistence. The reference server is deliberately a
@@ -52,6 +59,8 @@ export class MemoryStore extends EventEmitter {
   monitors = new Map<string, MonitorRow>();
   subscriptions = new Map<string, SubscriptionRow>();
   leases = new Map<string, LeaseRow>();
+  /** monitor id → the subjects it has published (its own observations, never protocol rows). A subscription may claim only these. */
+  published = new Map<string, Set<string>>();
   /** When the state file was unreadable at start, the copy this store was loaded from instead. */
   recoveredFrom: string | null = null;
   /** Where the unreadable state file was moved, so nobody overwrites the evidence of what broke. */
@@ -94,9 +103,18 @@ export class MemoryStore extends EventEmitter {
     const row = { ...ev, seq: ++this.seq };
     this.events.push(row);
     this.heads.set(row.monitor, row.seq);
+    this.notePublished(row);
     this.emit("append", row);
     this.persist();
     return row;
+  }
+  /** True once `monitor` has published an observation about `subject`. */
+  hasPublished(monitor: string, subject: string): boolean { return this.published.get(monitor)?.has(subject) ?? false; }
+  private notePublished(e: LogEvent): void {
+    if (!e.subject || PROTO_TYPE_LIST.includes(e.type)) return;
+    let set = this.published.get(e.monitor);
+    if (!set) this.published.set(e.monitor, set = new Set());
+    set.add(e.subject);
   }
   /** The server's high-water mark. Not what a subscriber is told: see `headOf`. */
   head(): number { return this.seq; }
@@ -128,7 +146,8 @@ export class MemoryStore extends EventEmitter {
   }
   snapshot(): Snapshot {
     return { seq: this.seq, floor: this.floor, events: this.events, monitors: [...this.monitors.values()],
-      subscriptions: [...this.subscriptions.values()], leases: [...this.leases.values()] };
+      subscriptions: [...this.subscriptions.values()], leases: [...this.leases.values()],
+      published: Object.fromEntries([...this.published].map(([m, s]) => [m, [...s]])) };
   }
   load(s: Snapshot): void {
     this.seq = s.seq; this.floor = s.floor ?? 0; this.events = s.events ?? [];
@@ -137,6 +156,9 @@ export class MemoryStore extends EventEmitter {
     this.monitors = new Map((s.monitors ?? []).map(m => [m.id, m]));
     this.subscriptions = new Map((s.subscriptions ?? []).map(x => [x.id, x]));
     this.leases = new Map((s.leases ?? []).map(l => [l.subject, l]));
+    // A state written before 0.2.0 has no index: rebuild it from the rows still in the log.
+    this.published = new Map(Object.entries(s.published ?? {}).map(([m, subjects]) => [m, new Set(subjects)]));
+    if (!s.published) for (const e of this.events) this.notePublished(e);
   }
   /**
    * Written before the reply that promised it. The new copy is flushed to disk before it replaces

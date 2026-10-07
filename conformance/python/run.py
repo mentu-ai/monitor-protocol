@@ -256,6 +256,11 @@ class Suite:
         st, wide = self.pull(nid, ntok, types="test.conformance.reading")
         self.check("C08", st == 400 and wide.get("code") == "INVALID_FILTER", fail_note=f"{st} {wide}")
 
+        # A subscription claims only what its own monitor published (02 `leases/claim`), so the work
+        # items the lease checks use are published on this monitor first.
+        for s in list(self.subjects) + [f"dead-letter-{self.tag}", f"own-work-{self.tag}"]:
+            st, out = self.publish(mid, otok, subject=s)
+            assert st == 201, (st, out)
         oid, otok2, _ = self.subscribe(mid, "observer-only")
         subj = self.subjects[0]
         st, out = c.req("POST", f"/mp/v0/subscriptions/{oid}/leases/claim", {"subject": subj}, token=otok2)
@@ -288,6 +293,39 @@ class Suite:
         st2, lost = c.req("POST", f"/mp/v0/subscriptions/{a_id}/leases/complete",
                           {"subject": self.subjects[2], "outcome": "done"}, token=a_tok)
         self.check("C13", st in (200, 201) and st2 == 409 and lost.get("code") == "LEASE_LOST", fail_note=f"{st} {out} / {st2} {lost}")
+
+        # C32: a subscriber's name is not a credential; re-subscribing re-keys, so it needs the
+        # subscription's token or the owner's, and the holder's token keeps working.
+        v_id, v_tok, _ = self.subscribe(mid, "victim")
+        st, take = c.req("POST", "/mp/v0/subscriptions", {"monitor": mid, "subscriber": f"victim-{self.tag}",
+                                                          "capabilities": ["observe"]})
+        st_hold, _ = self.pull(v_id, v_tok)
+        self.check("C32", st == 401 and take.get("code") == "UNAUTHORIZED" and st_hold == 200,
+                   fail_note=f"{st} {take} / holder's pull {st_hold}")
+
+        # C33: a dead letter is state; once a reject reaches delivery_count_limit the subject is never
+        # claimed again, by anyone.
+        dl = f"dead-letter-{self.tag}"
+        dead = {}
+        for _ in range(20):
+            st, _ = c.req("POST", f"/mp/v0/subscriptions/{a_id}/leases/claim", {"subject": dl, "lease_duration_seconds": 60}, token=a_tok)
+            if st >= 400:
+                break
+            _, dead = c.req("POST", f"/mp/v0/subscriptions/{a_id}/leases/reject", {"subject": dl, "reason": "c33"}, token=a_tok)
+            if dead.get("dead_letter") is True:
+                break
+        st, again = c.req("POST", f"/mp/v0/subscriptions/{b_id}/leases/claim", {"subject": dl, "lease_duration_seconds": 60}, token=b_tok)
+        self.check("C33", dead.get("dead_letter") is True and st == 409 and again.get("code") == "DEAD_LETTERED",
+                   fail_note=f"{dead} / {st} {again}")
+
+        # C34: a subscription claims only what its own monitor published; a subscription to a monitor
+        # that never published the subject is refused NOT_FOUND, so it can neither hold nor dead-letter it.
+        emid, etok = self.monitor("elsewhere-act")
+        i_id, i_tok, _ = self.subscribe(emid, "intruder", caps=("observe", "act"), grant=etok)
+        # its own subject, so a server that wrongly grants the claim does not hold work a later check needs
+        st, foreign = c.req("POST", f"/mp/v0/subscriptions/{i_id}/leases/claim",
+                            {"subject": f"own-work-{self.tag}", "lease_duration_seconds": 60}, token=i_tok)
+        self.check("C34", st == 404 and foreign.get("code") == "NOT_FOUND", fail_note=f"{st} {foreign}")
 
         wit_id, wit_tok, _ = self.subscribe(mid, "witness", filter={"types": ["ai.mentu.monitor.*"]})
         c.req("POST", f"/mp/v0/monitors/{mid}/pause", {"reason": "c14"}, token=otok)
@@ -416,7 +454,7 @@ class Suite:
         will = [o for o in pw.get("observations", []) if o["type"] == "ai.mentu.monitor.subscription_retired"
                 and (o["data"].get("payload") or {}).get("subscription") == m_id]
         st3, re_ = c.req("POST", "/mp/v0/subscriptions", {"monitor": mid, "subscriber": f"mute-{self.tag}",
-                                                          "capabilities": ["observe"]})
+                                                          "capabilities": ["observe"]}, token=m_tok)
         kept = st3 == 201 and re_["subscription"]["cursor"] == pm["next"] and re_["subscription"]["id"] == m_id
         self.check("C19", st == 404 and gone.get("retired") is True and will and kept,
                    fail_note=f"{st} {gone} / will={len(will)} / kept={kept}")

@@ -112,7 +112,8 @@ export class MonitorService {
 
   pubLease(l: LeaseRow): Lease {
     return { subject: l.subject, holder: l.holder, lease_duration_seconds: l.lease_duration_seconds, acquire_time: l.acquire_time,
-      renew_time: l.renew_time, lease_transitions: l.lease_transitions, attempts: l.attempts, delivery_count_limit: l.delivery_count_limit };
+      renew_time: l.renew_time, lease_transitions: l.lease_transitions, attempts: l.attempts, delivery_count_limit: l.delivery_count_limit,
+      dead_letter: l.dead_letter === true };
   }
 
   knownTypes(m?: MonitorRow): string[] {
@@ -427,20 +428,31 @@ export class MonitorService {
     const caps = asList(b.capabilities ?? ["observe"]);
     const badCaps = caps.filter(c => !(CAPABILITIES as readonly string[]).includes(c));
     if (badCaps.length) return err("UNKNOWN_VOCABULARY", `invalid capabilities: ${badCaps.join(", ")}`, { known: CAPABILITIES });
+    // A subscriber's name is not a credential. Re-subscribing an existing subscriber re-keys its
+    // subscription (cursor, leases and all), so it needs that subscription's current token, or the
+    // monitor's owner token for a subscriber that lost its own. Anyone else is refused, and the
+    // holder's token keeps working.
+    const existing = [...this.store.subscriptions.values()].find(s => s.monitor === m.id && s.subscriber === subscriber);
+    const owner = this.ownerOk(m, auth);
+    const holds = !!existing && !!auth.bearer && sha(auth.bearer) === existing.tokenHash;
+    if (existing && !holds && !owner)
+      return err("UNAUTHORIZED", `subscriber '${subscriber}' already has a subscription on this monitor; re-subscribing re-keys it and needs its current token or the owner's`,
+        { subscription: existing.id, existing: true });
     // What a stranger may hold is the monitor's default grant; the full set needs the owner token
-    // or the subscribe token it was shared with. Asking is not a grant (P7).
-    const privileged = this.ownerOk(m, auth) || this.grantOk(m, auth);
-    const grantable = privileged ? m.capabilities : m.capabilities.filter(c => m.defaultGrant.includes(c));
+    // or the subscribe token it was shared with. Asking is not a grant (P7). A holder keeps what it
+    // was granted before.
+    const privileged = owner || this.grantOk(m, auth);
+    const grantable = privileged ? m.capabilities
+      : m.capabilities.filter(c => m.defaultGrant.includes(c) || (holds && existing!.capabilities.includes(c)));
     const over = caps.filter(c => !grantable.includes(c));
     if (over.length) return err("CAPABILITY_MISSING", `this credential may be granted ${JSON.stringify(grantable)}; asked ${JSON.stringify(over)}`, { granted: grantable, monitor_capabilities: m.capabilities });
-    if (m.subscribeTokenHash && !privileged) return err("UNAUTHORIZED", "this monitor is shared by token; present it to subscribe");
+    if (m.subscribeTokenHash && !privileged && !holds) return err("UNAUTHORIZED", "this monitor is shared by token; present it to subscribe");
     const v = validateFilter(b.filter ?? {}, this.knownTypes(m));
     if (!v.ok) return err("INVALID_FILTER", `invalid filter: ${v.problems.join(", ")}`, { invalid: v.problems, known_keys: v.known_keys, known_types: v.known_types });
     const protocol = String(b.protocol ?? "pull"), reset = String(b.reset_policy ?? "none");
     if (!(PROTOCOLS as readonly string[]).includes(protocol)) return err("UNKNOWN_VOCABULARY", `protocol must be one of ${PROTOCOLS.join(", ")}`);
     if (!(RESET_POLICIES as readonly string[]).includes(reset)) return err("UNKNOWN_VOCABULARY", `reset_policy must be one of ${RESET_POLICIES.join(", ")}`);
     const head = this.store.headOf(m.id);
-    const existing = [...this.store.subscriptions.values()].find(s => s.monitor === m.id && s.subscriber === subscriber);
     const from = b.from;
     if (from != null && from !== "head" && asSeq(from) == null) return err("INVALID", "`from` must be 'head' or a non-negative integer", { from });
     const tok = token();
@@ -586,6 +598,13 @@ export class MonitorService {
     if (l && l.holder && Date.parse(l.expires) < Date.now()) { l.holder = null; }   // lazy expiry, same rule as sweep
     if (action === "claim") {
       const dur = Number(b.lease_duration_seconds ?? 900);
+      // A subscription claims only work its own monitor delivered. Without this, a subscription to any
+      // monitor could hold, or dead-letter, a subject that only another monitor publishes.
+      if (!this.store.hasPublished(s.monitor, subject))
+        return err("NOT_FOUND", "this subscription's monitor never published that subject; a subscription claims only what its own monitor published",
+          { subject, monitor: s.monitor });
+      if (l && l.dead_letter) return err("DEAD_LETTERED", `subject was dead-lettered after ${l.attempts} attempts; it is not delivered again`,
+        { subject, attempts: l.attempts, delivery_count_limit: l.delivery_count_limit });
       if (l && l.holder && l.holder !== holder) return err("LEASE_HELD", "subject is held by another holder", { holder: l.holder, renew_time: l.renew_time, expires: l.expires });
       const same = !!l && l.holder === holder;
       if (!l) { l = { subject, holder, lease_duration_seconds: dur, acquire_time: t, renew_time: t, expires: plus(dur), lease_transitions: 0, attempts: 1, delivery_count_limit: 5, monitor: s.monitor }; this.store.leases.set(subject, l); }
@@ -610,6 +629,7 @@ export class MonitorService {
     if (action === "release" || action === "reject") {
       l.holder = null; l.renew_time = t;
       const dead = action === "reject" && l.attempts >= l.delivery_count_limit;
+      if (dead) l.dead_letter = true;   // persisted with the log row below
       const ev = this.log(s.monitor, PROTO_TYPES.lease, subject, s.subscriber, this.originOf(s.subscriber),
         { action, subject, subscription: sid, reason: b.reason ?? "unstated", attempts: l.attempts, dead_letter: dead });
       return ok({ ok: true, seq: ev.seq, dead_letter: dead });

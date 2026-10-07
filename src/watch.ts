@@ -1,7 +1,12 @@
 /**
- * The Claude Code Monitor client loop (spec/03-bindings.md): one line per observation on stdout,
- * ack after the line is printed. `--catch-up` prints the backlog first and acks nothing. When the
- * server cannot be reached the loop prints DOWN once, backs off and keeps trying, then UP.
+ * The Claude Code Monitor client loop (spec/03-bindings.md): one line per observation on stdout.
+ * Printing is not handling: with `ackAfterPrint: false` the loop never acknowledges. After each
+ * batch it prints `NEXT <cursor>`, reads on from there without committing, and leaves the commit to
+ * the session, which acknowledges after it has handled the batch; an event printed to a session that
+ * dies before handling it is delivered again, marked redelivered. `ackAfterPrint` (the default for
+ * the library, kept for compatibility) acknowledges each batch once printed. `--catch-up` prints the
+ * backlog first and acks nothing. When the server cannot be reached the loop prints DOWN once, backs
+ * off and keeps trying, then UP.
  */
 import { MonitorClient } from "./client.js";
 import type { Observation, PullResult, State } from "./types.js";
@@ -44,14 +49,20 @@ export async function watch(opts: WatchOptions): Promise<void> {
     }
   };
 
+  // Without acknowledging, the loop keeps its own read position; the subscription's cursor stays
+  // where the session last committed, so a restart starts from what was not handled.
+  let readFrom: number | null = null;
   if (opts.catchUpFirst) {
     const r = await reach(() => client.pull<PullResult>(opts.subscription, opts.token, { wait: 0, limit: 200 }));
-    if (r && r.status === 200) for (const o of r.body.observations) out(line(o, "CATCHUP "));
+    if (r && r.status === 200) {
+      for (const o of r.body.observations) out(line(o, "CATCHUP "));
+      if (!ack && r.body.observations.length) { out(`NEXT ${r.body.next}`); readFrom = r.body.next; }
+    }
     else if (r) out(`CATCHUP-ERROR ${JSON.stringify(r.body)}`);
   }
 
   for (;;) {
-    const r = await reach(() => client.pull<PullResult>(opts.subscription, opts.token, { wait, limit }));
+    const r = await reach(() => client.pull<PullResult>(opts.subscription, opts.token, readFrom == null ? { wait, limit } : { wait, limit, cursor: readFrom }));
     if (!r) { if (opts.once) return; continue; }
     if (r.status === 410) {
       const b = r.body as unknown as { retention_floor: number };
@@ -62,6 +73,7 @@ export async function watch(opts: WatchOptions): Promise<void> {
         if (s && s.status === 200) out(`STATE monitor=${s.body.monitor} live=${s.body.live.value} reason=${s.body.live.reason ?? "-"} head=${s.body.head} gaps=${s.body.confidence.gaps.join(",")}`);
       }
       await reach(() => client.seek(opts.subscription, opts.token, b.retention_floor, "cursor expired; relisted from state"));
+      readFrom = null;
       if (opts.once) return;
       continue;
     }
@@ -72,6 +84,7 @@ export async function watch(opts: WatchOptions): Promise<void> {
     // If the acknowledgement cannot reach the server, the next pull hands the same batch back,
     // marked redelivered: seen twice, never missed.
     if (page.observations.length && ack) await reach(() => client.ack(opts.subscription, opts.token, page.next));
+    if (page.observations.length && !ack) { out(`NEXT ${page.next}`); readFrom = page.next; }
     if (!page.observations.length && wait >= 20) out(`HEAD ${page.head} LAG ${page.lag}`);
     if (opts.once) return;
   }

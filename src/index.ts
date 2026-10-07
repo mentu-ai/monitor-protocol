@@ -12,6 +12,7 @@ import { createHttpServer, listen } from "./server/http.js";
 import { MCP_TOOL_DEFINITIONS, serveMcp } from "./server/mcp.js";
 import { printSummary, runConformance } from "./conformance.js";
 import { watch } from "./watch.js";
+import { MonitorClient } from "./client.js";
 import { expandHome } from "./paths.js";
 import { acquireStateLock } from "./lock.js";
 
@@ -38,10 +39,14 @@ const USAGE = `monitor-protocol: monitors that keep watching, remember what they
         and prints it; --registration-token makes monitor creation attested.
   mcp   [--state <file.json>]
         Serve the MCP extension ai.mentu/monitors over stdio.
-  watch --base <url> --subscription <id> --token <tok> [--catch-up] [--wait 25] [--limit 50] [--once]
-        Pull/ack loop, one line per observation. The client for a Claude Code Monitor arm.
+  watch --base <url> --subscription <id> --token <tok> [--catch-up] [--wait 25] [--limit 50] [--once] [--ack-on-print]
+        Pull loop, one line per observation and NEXT <cursor> after each batch. It acknowledges
+        nothing: the session acks after handling. --ack-on-print restores the 0.1.3 behaviour.
+        The client for a Claude Code Monitor arm.
+  ack   --base <url> --subscription <id> --token <tok> --cursor <n>
+        Commit the subscription's cursor once the batch before <n> is handled.
   conform (--self | --base <url>) [--admin[=token]] [--json]
-        Run the conformance suite (C01 to C29) against an implementation.
+        Run the conformance suite (C01 to C34) against an implementation.
   publish --base <url> --monitor <id> --token <owner> --type <t> [--subject s] [--tier measured] [--origin probe] [--data '{}']
         Publish one observation.
   tools [--json]
@@ -116,8 +121,17 @@ export async function main(argv: string[] = process.argv.slice(2)): Promise<numb
     case "watch": {
       const base = str(flags, "base"), subscription = str(flags, "subscription"), token = str(flags, "token");
       if (!base || !subscription || !token) { console.error("watch needs --base, --subscription and --token"); return 2; }
-      await watch({ base, subscription, token, catchUpFirst: flags["catch-up"] === true, wait: num(flags, "wait", 25), limit: num(flags, "limit", 50), once: flags.once === true });
+      await watch({ base, subscription, token, catchUpFirst: flags["catch-up"] === true, wait: num(flags, "wait", 25), limit: num(flags, "limit", 50), once: flags.once === true,
+        ackAfterPrint: flags["ack-on-print"] === true });
       return 0;
+    }
+    case "ack": {
+      const base = str(flags, "base"), subscription = str(flags, "subscription"), token = str(flags, "token");
+      const cursor = num(flags, "cursor", -1);
+      if (!base || !subscription || !token || cursor < 0) { console.error("ack needs --base, --subscription, --token and --cursor"); return 2; }
+      const r = await new MonitorClient(base).ack(subscription, token, cursor);
+      console.log(JSON.stringify(r.body));
+      return r.status === 200 ? 0 : 1;
     }
     case "conform": {
       const json = flags.json === true;

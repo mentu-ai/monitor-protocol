@@ -25,7 +25,8 @@
     "OVER_BUDGET",
     "ORIGIN_REFUSED",
     "TOO_LARGE",
-    "UNAVAILABLE"
+    "UNAVAILABLE",
+    "DEAD_LETTERED"
    ]
   },
   "error": {

@@ -72,6 +72,8 @@ export interface Subscription {
 export interface Lease {
   subject: string; holder: string | null; lease_duration_seconds: number; acquire_time: string;
   renew_time: string; lease_transitions: number; attempts: number; delivery_count_limit: number;
+  /** True once a `reject` reached `delivery_count_limit`: the subject is not delivered again. */
+  dead_letter?: boolean;
 }
 
 export interface PullResult {

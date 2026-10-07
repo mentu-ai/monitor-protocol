@@ -33,6 +33,10 @@
   },
   "delivery_count_limit": {
    "type": "integer"
+  },
+  "dead_letter": {
+   "type": "boolean",
+   "description": "set by the reject that reaches delivery_count_limit; a dead-lettered subject is never claimed again (claim answers DEAD_LETTERED)"
   }
  },
  "required": [

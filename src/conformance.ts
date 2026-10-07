@@ -133,6 +133,12 @@ class Suite {
     const widen = await this.pull(narrow.id, narrow.token, { types: "test.conformance.reading" });
     this.check("C08", widen.status === 400 && widen.body.code === "INVALID_FILTER", `${widen.status} ${say(widen.body)}`);
 
+    // A subscription claims only what its own monitor published (02 `leases/claim`), so the work
+    // items the lease checks use are published on this monitor first.
+    for (const s of [...subjects, `dead-letter-${this.tag}`, `own-work-${this.tag}`]) {
+      const r = await this.publish(mon.id, mon.token, { subject: s });
+      if (r.status !== 201) throw new Error(`publish failed: ${r.status} ${say(r.body)}`);
+    }
     const observer = await this.subscribe(mon.id, "observer-only");
     const noAct = await this.req<{ code?: string }>("POST", `/subscriptions/${observer.id}/leases/claim`, { subject: subjects[0] }, observer.token);
     this.check("C11", noAct.status === 403 && noAct.body.code === "CAPABILITY_MISSING", `${noAct.status} ${say(noAct.body)}`);
@@ -153,6 +159,35 @@ class Suite {
     const taken = await this.req("POST", `/subscriptions/${wb.id}/leases/claim`, { subject: subjects[2], lease_duration_seconds: 60 }, wb.token);
     const late = await this.req<{ code?: string }>("POST", `/subscriptions/${wa.id}/leases/complete`, { subject: subjects[2], outcome: "done" }, wa.token);
     this.check("C13", taken.status === 201 && late.status === 409 && late.body.code === "LEASE_LOST", `${taken.status} / ${late.status} ${say(late.body)}`);
+
+    // C32 — a subscriber's name is not a credential. Re-subscribing re-keys the subscription, so a
+    // caller with neither its token nor the owner's is refused, and the holder's token keeps working.
+    const victim = await this.subscribe(mon.id, "victim");
+    const takeover = await this.req<{ code?: string }>("POST", "/subscriptions", { monitor: mon.id, subscriber: `victim-${this.tag}`, capabilities: ["observe"] });
+    const stillHeld = await this.pull(victim.id, victim.token);
+    this.check("C32", takeover.status === 401 && takeover.body.code === "UNAUTHORIZED" && stillHeld.status === 200,
+      `${takeover.status} ${say(takeover.body)} / holder's pull ${stillHeld.status}`);
+
+    // C33 — a dead letter is state: once a reject reaches delivery_count_limit, the subject is never
+    // claimed again, by anyone.
+    const dl = `dead-letter-${this.tag}`;
+    let dead: Res<{ dead_letter?: boolean }> | null = null;
+    for (let i = 0; i < 20 && dead?.body.dead_letter !== true; i++) {
+      const c = await this.req("POST", `/subscriptions/${wa.id}/leases/claim`, { subject: dl, lease_duration_seconds: 60 }, wa.token);
+      if (c.status >= 400) break;
+      dead = await this.req<{ dead_letter?: boolean }>("POST", `/subscriptions/${wa.id}/leases/reject`, { subject: dl, reason: "c33" }, wa.token);
+    }
+    const reclaim = await this.req<{ code?: string }>("POST", `/subscriptions/${wb.id}/leases/claim`, { subject: dl, lease_duration_seconds: 60 }, wb.token);
+    this.check("C33", dead?.body.dead_letter === true && reclaim.status === 409 && reclaim.body.code === "DEAD_LETTERED",
+      `${say(dead?.body)} / ${reclaim.status} ${say(reclaim.body)}`);
+
+    // C34 — a subscription claims only what its own monitor published: a subscription to a monitor
+    // that never published the subject is refused NOT_FOUND, so it can neither hold nor dead-letter it.
+    const elsewhere = await this.monitor("elsewhere-act");
+    const intruder = await this.subscribe(elsewhere.id, "intruder", ["observe", "act"], {}, elsewhere.token);
+    // Its own subject, so a server that wrongly grants the claim does not hold work a later check needs.
+    const foreignClaim = await this.req<{ code?: string }>("POST", `/subscriptions/${intruder.id}/leases/claim`, { subject: `own-work-${this.tag}`, lease_duration_seconds: 60 }, intruder.token);
+    this.check("C34", foreignClaim.status === 404 && foreignClaim.body.code === "NOT_FOUND", `${foreignClaim.status} ${say(foreignClaim.body)}`);
 
     const witness = await this.subscribe(mon.id, "witness", ["observe"], { filter: { types: ["ai.mentu.monitor.*"] } });
     await this.req("POST", `/monitors/${mon.id}/pause`, { reason: "c14" }, mon.token);
@@ -197,7 +232,7 @@ class Suite {
     const gone = await this.pull(mute.id, mute.token);
     const pwit3 = await this.pull(witness.id, witness.token, { limit: 200 });
     const will = pwit3.body.observations.filter(o => o.type === "ai.mentu.monitor.subscription_retired" && ((o.data.payload ?? {}) as Record<string, unknown>).subscription === mute.id);
-    const again2 = await this.req<{ subscription: { id: string; cursor: number } }>("POST", "/subscriptions", { monitor: mon.id, subscriber: `mute-${this.tag}`, capabilities: ["observe"] });
+    const again2 = await this.req<{ subscription: { id: string; cursor: number } }>("POST", "/subscriptions", { monitor: mon.id, subscriber: `mute-${this.tag}`, capabilities: ["observe"] }, mute.token);
     const kept = again2.status === 201 && again2.body.subscription.cursor === pm.body.next && again2.body.subscription.id === mute.id;
     this.check("C19", gone.status === 404 && gone.body.retired === true && will.length > 0 && kept, `${gone.status} ${say(gone.body)} will=${will.length} kept=${kept}`);
 
