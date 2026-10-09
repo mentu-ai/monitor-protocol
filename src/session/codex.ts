@@ -155,7 +155,7 @@ export async function bindCodexSession(overrides: Partial<CodexRuntime> = {}): P
     }
     pid = row.parent;
   }
-  throw new CodexSessionError("NO_LIVE_SESSION", "No live Codex terminal ancestor; background or headless attachment is unsupported");
+  throw new CodexSessionError("NO_LIVE_SESSION", "No live Codex terminal ancestor; tools hosted in a separate app server need an attended frontend binding that this adapter does not yet support");
 }
 
 /** A stale binding is never repaired by opening or resuming a model session. */

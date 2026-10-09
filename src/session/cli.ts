@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { BridgeJournal, SessionBridge, canonical, type BridgeHeader } from "./bridge.js";
+import { BridgeJournal, SessionBridge, canonical, runSessionBridge, type BridgeHeader } from "./bridge.js";
 import { bindCodexSession, enqueueCodex, isCodexSessionLive, CodexQueueRetryError, type CodexBinding } from "./codex.js";
 import { BridgeRetryError, HttpSubscriptionSource } from "./source.js";
 import { expandHome } from "../paths.js";
@@ -13,6 +13,7 @@ export const BRIDGE_USAGE = `monitor-protocol bridge:
   handled --state DIR --delivery ID --evidence DISPOSITION_OR_REFERENCE
       Record a local handling receipt. The worker then acknowledges the source.
   status --state DIR
+      Report session liveness separately from worker identity, heartbeat, and exit status.
   stop --state DIR
       Stop delivery permanently for this binding. It never retires the subscription.
   --help
@@ -58,44 +59,31 @@ export async function bridgeMain(argv: string[]): Promise<number> {
       source: { base: source.base, subscription: source.subscription } };
     const journal = new BridgeJournal(path, header);
     if (journal.stopped()) throw new Error("this bridge was stopped; use a new state directory to explicitly rearm");
-    const release = journal.lock();
     const worker = new SessionBridge(journal, source, {
       kind: "codex", binding, isLive: () => isCodexSessionLive(binding),
       enqueue: message => enqueueCodex(binding, message),
     }, [process.execPath, fileURLToPath(new URL("../index.js", import.meta.url))]);
-    let stopping = false;
-    const stop = () => { stopping = true; journal.stop(); };
-    process.once("SIGINT", stop); process.once("SIGTERM", stop);
-    try {
-      console.log(JSON.stringify({ status: "bound", state: journal.path, adapter: "codex", subscription: source.subscription }));
-      let last = "";
-      let backoff = poll;
-      while (!stopping) {
-        try {
-          const status = await worker.step();
-          if (status !== last) console.log(JSON.stringify({ status }));
-          last = status; backoff = poll;
-          if (status === "stopped") { journal.stop(); break; }
-        } catch (error) {
-          if (!(error instanceof BridgeRetryError || error instanceof CodexQueueRetryError)) throw error;
-          if (last !== "retrying") console.error("bridge transport unavailable or enqueue uncertain; retaining delivery and cursor, retrying");
-          last = "retrying"; backoff = Math.min(backoff * 2, 10_000);
-        }
-        await new Promise(resolve => setTimeout(resolve, backoff));
-      }
-      return 0;
-    } finally {
-      process.removeListener("SIGINT", stop); process.removeListener("SIGTERM", stop); release();
-    }
+    return runSessionBridge(worker, {
+      pollMs: poll,
+      isRetryable: error => error instanceof BridgeRetryError || error instanceof CodexQueueRetryError,
+      onStatus: status => {
+        if (status === "bound") console.log(JSON.stringify({ status, state: journal.path, adapter: "codex", subscription: source.subscription }));
+        else if (status === "retrying") console.error("bridge transport unavailable or enqueue uncertain; retaining delivery and cursor, retrying");
+        else console.log(JSON.stringify({ status }));
+      },
+    });
   }
   const journal = new BridgeJournal(path);
   if (action === "stop") { journal.stop(); console.log(JSON.stringify({ status: "stopped" })); return 0; }
   const saved = journal.header();
   if (saved.adapter !== "codex") throw new Error("unsupported saved session adapter");
   if (action === "status") {
-    const live = await isCodexSessionLive(saved.binding as CodexBinding);
+    const [live, worker] = await Promise.all([
+      isCodexSessionLive(saved.binding as CodexBinding), journal.workerStatus(),
+    ]);
     const item = journal.pending();
-    console.log(JSON.stringify({ stopped: journal.stopped(), live, adapter: saved.adapter,
+    console.log(JSON.stringify({ stopped: journal.stopped(), live, session_alive: live,
+      worker_alive: worker.alive, active: !journal.stopped() && live && worker.healthy, worker, adapter: saved.adapter,
       subscription: saved.source.subscription, delivery: item?.id ?? null,
       phase: item ? journal.receipt(item.id) ? "handled" : journal.queued(item.id) ? "queued" : "pending" : "idle" }));
     return 0;

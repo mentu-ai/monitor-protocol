@@ -11,7 +11,8 @@ objects. It is not included in the published 0.2.0 package.
 
 | Host | Read observations | Wake a live conversation | Session boundary |
 |---|---|---|---|
-| Codex terminal with a native `queue` capability | HTTP subscription through the bridge | The Codex adapter queues a reference into the bound session | Discovers its own live terminal ancestor and thread; never starts or resumes a session |
+| Codex terminal with a native `queue` capability and tools under that terminal process | HTTP subscription through the bridge | The Codex adapter queues a reference into the bound session | Discovers its own live terminal ancestor and thread; never starts or resumes a session |
+| Codex terminal with tools hosted in a separate app server | HTTP or `watch` CLI | Current adapter refuses this process arrangement | Requires an exact thread-to-attended-frontend binding; use attended pull until supported |
 | Claude Code with its Monitor tool | `watch` CLI or MCP | The host's Monitor tool delivers output | The host owns the Monitor lifetime and rearming |
 | Other MCP clients | MCP tools | Depends on the host; no generic wake guarantee | Use an implemented host adapter or attended pull |
 | HTTP clients and ordinary terminals | HTTP or `watch` CLI | No model wake supplied by the transport | Pull, handle, and explicitly acknowledge |
@@ -20,6 +21,12 @@ The Codex adapter supports macOS and Linux process inspection. Windows is refuse
 the executable of the running Codex process for the required `queue --thread --message`
 capability; finding an executable named `codex` on `PATH` is insufficient. A host version without
 that capability uses the pull workflow.
+
+A human-opened terminal can use an app server outside its process tree. In that arrangement,
+the absence of a terminal ancestor does not mean the person opened a headless session. It means
+this adapter cannot establish the session boundary. A live server, a loaded thread, and a
+successful queue operation do not establish that the person is still attending that thread.
+Do not work around the refusal by choosing a nearby terminal PID or substituting daemon liveness.
 
 An HTTP connection, MCP registration, or successfully printed notification does not establish
 that a client can wake an idle model. Adapter unit tests and real host wake tests establish
@@ -124,6 +131,28 @@ node dist/index.js bridge status --state ~/.monitor-protocol/codex-session
 node dist/index.js bridge stop --state ~/.monitor-protocol/codex-session
 ```
 
+`status` reports **session and worker liveness separately**. `session_alive` (and the legacy
+`live` alias) describes only the bound Codex process. `worker_alive` checks the consumer's PID,
+process start time, and executable name. `active` is true only when the binding is not stopped,
+the session is live, and the worker has a recent heartbeat. Neither an empty delivery queue nor
+`stopped: false` proves that a consumer is running.
+`active` is a process-health snapshot, not proof of end-to-end delivery; for example,
+`last_step: "retrying"` reports a live worker waiting for its transport to recover.
+
+The private `worker.json` records the worker identity, run ID, heartbeat, last completed loop
+step, and any recorded exit code, signal, and reason. `worker.state` is `running`, `stale`,
+`exited`, `dead`, or `unrecorded`. A process with an old heartbeat is `stale`; a missing or
+changed process without a recorded exit is `dead`. A forced kill cannot record its own exit
+code, so `dead` deliberately leaves that code unknown. Journals created before worker health
+tracking are `unrecorded`, never assumed active. A backwards wall-clock adjustment also makes
+freshness uncertain until the worker writes another heartbeat.
+
+Check `status` after the host has returned from the launch tool call, and again after an idle
+turn. Some terminal-tool hosts terminate child workers even while the Codex session remains
+open. A successful launch or queued probe does not establish that the host will preserve the
+worker. This bridge records and detects worker failure; it does not install a supervisor or
+restart itself.
+
 The binding includes the live process identity, start time, terminal, executable, and thread.
 The bridge checks it before delivery. Ending that session or explicitly stopping the bridge
 ends delivery. It never launches a new model process, resumes a saved conversation, or attaches
@@ -150,7 +179,9 @@ processing result. A receipt also separates handling from a transient acknowledg
 Authorization errors, subscription retirement, expired cursors, and inconsistent source
 responses require attention; the bridge must not silently seek ahead to make the error go away.
 
-A normal exit releases the directory's `worker.lock`. A forced kill can leave that lock behind;
+A normal exit releases the directory's `worker.lock`. `SIGINT` or `SIGTERM` records a stopped
+binding and its signal (exit code 130 or 143), so explicit rearming needs a new state directory.
+A forced kill can leave that lock behind;
 the bridge deliberately refuses to steal it. Verify that the recorded worker process has
 exited before removing that one lock file, then restart the bridge from the **same still-live
 session** and state directory. Keep the delivery and receipt files. A stopped binding or a
@@ -168,6 +199,10 @@ needs to:
 3. Revalidate that binding and durably enqueue a reference, or report failure, without creating
    or resuming a session. A crash around enqueue may repeat the same delivery ID.
 4. Detect session death or an explicit stop and cease delivery.
+
+The exported `runSessionBridge()` loop owns worker health, signal handling, and the conservative
+directory lock. Calling `SessionBridge.step()` directly is useful for an embedding or test, but
+does not establish a supervised or healthy long-running worker by itself.
 
 Host events are notifications, not user messages carrying new authorization. Reuse the journal,
 deduplication, and receipt-before-ack path; do not implement an adapter-specific auto-commit.

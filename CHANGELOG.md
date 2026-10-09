@@ -8,6 +8,9 @@
   durable local handling receipt. It never starts or resumes a model session.
 - Private delivery journals preserve pending work and deduplication across worker restarts;
   stale sessions, retention gaps, conflicting cursors and invalid observations stop delivery.
+- Bridge status distinguishes the bound session from its consumer worker. Private process
+  identity, heartbeat, progress and exit records detect dead or stalled workers even when the
+  session remains open. Separate app-server hosting remains unsupported by the Codex binding.
 - Provider-neutral workspace and adapter documentation, including Claude Code Monitor and
   attended pull for hosts without a verified wake capability. Wire protocol semantics stay at v0.
 

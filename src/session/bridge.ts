@@ -1,5 +1,6 @@
 /** Durable, provider-neutral delivery to an existing live session. No model processes are started. */
 import { createHash, randomUUID } from "node:crypto";
+import { execFile } from "node:child_process";
 import { closeSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync,
   realpathSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -27,6 +28,37 @@ export interface Delivery {
 }
 export interface HandlingReceipt {
   delivery: string; fingerprint: string; evidence: string; handled: string;
+}
+export interface WorkerProcess {
+  pid: number; started: string; command: string;
+}
+export interface WorkerRecord {
+  version: 1; run: string; process: WorkerProcess; started: string;
+  heartbeat: string; stale_after_ms: number; last_step: string; last_step_at: string;
+  exit: { at: string; code: number; signal: "SIGINT" | "SIGTERM" | null;
+    reason: "signal" | "stopped" | "session-ended" | "worker-error" } | null;
+}
+export interface WorkerStatus {
+  state: "unrecorded" | "running" | "stale" | "exited" | "dead";
+  alive: boolean; healthy: boolean; heartbeat_age_ms: number | null;
+  record: WorkerRecord | null;
+}
+
+/** Inspect the worker itself, independently of the human's session. Parent PID can change
+ * when a hosting shell exits, so identity uses PID, process start time, and executable name. */
+async function inspectWorker(pid: number): Promise<WorkerProcess | null> {
+  if (!Number.isSafeInteger(pid) || pid <= 1 || !["darwin", "linux"].includes(process.platform)) return null;
+  try {
+    const output = await new Promise<string>((resolve, reject) => {
+      execFile("/bin/ps", ["-ww", "-o", "pid=,lstart=,stat=,comm=", "-p", String(pid)],
+        { encoding: "utf8", timeout: 5_000, maxBuffer: 64 * 1024,
+          env: { ...process.env, LC_ALL: "C", LANG: "C" } },
+        (error, stdout) => error ? reject(error) : resolve(stdout));
+    });
+    const match = output.trim().match(/^(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(\S+)\s+(.+)$/);
+    if (!match || Number(match[1]) !== pid || /[ZX]/.test(match[3])) return null;
+    return { pid, started: match[2].replace(/\s+/g, " "), command: match[4] };
+  } catch { return null; }
 }
 
 export function canonical(value: unknown): string {
@@ -87,6 +119,48 @@ export class BridgeJournal {
   }
   stopped(): boolean { return this.read("stopped.json") !== null; }
   stop(): void { this.put("stopped.json", { stopped: new Date().toISOString() }); }
+  workerRecord(): WorkerRecord | null {
+    const saved = this.read<WorkerRecord>("worker.json");
+    if (saved && (saved.version !== 1 || !saved.run || !Number.isSafeInteger(saved.process?.pid) ||
+      saved.process.pid <= 1 || !saved.process.started || !saved.process.command ||
+      !Number.isFinite(Date.parse(saved.started)) || !Number.isFinite(Date.parse(saved.heartbeat)) ||
+      !Number.isFinite(Date.parse(saved.last_step_at)) || !saved.last_step ||
+      !Number.isSafeInteger(saved.stale_after_ms) || saved.stale_after_ms < 30_000 ||
+      (saved.exit !== null && (!saved.exit || !Number.isFinite(Date.parse(saved.exit.at)) ||
+        !Number.isInteger(saved.exit.code))))) throw new Error("invalid worker health record");
+    return saved;
+  }
+  async workerStatus(now = Date.now()): Promise<WorkerStatus> {
+    const record = this.workerRecord();
+    if (!record) return { state: "unrecorded", alive: false, healthy: false, heartbeat_age_ms: null, record };
+    const current = await inspectWorker(record.process.pid);
+    const alive = current !== null && canonical(current) === canonical(record.process);
+    const age = now - Date.parse(record.heartbeat);
+    const fresh = age >= 0 && age <= record.stale_after_ms;
+    const state = record.exit ? "exited" : !alive ? "dead" : !fresh ? "stale" : "running";
+    return { state, alive, healthy: state === "running", heartbeat_age_ms: age, record };
+  }
+  /** Called only by the worker after acquiring the exclusive directory lock. */
+  async startWorker(pollMs: number): Promise<{ heartbeat(step?: string): void; finish(exit: Omit<NonNullable<WorkerRecord["exit"]>, "at">): void }> {
+    const identity = await inspectWorker(process.pid);
+    if (!identity) throw new Error("cannot establish bridge worker process identity");
+    const now = new Date().toISOString();
+    const record: WorkerRecord = { version: 1, run: randomUUID(), process: identity, started: now,
+      heartbeat: now, stale_after_ms: Math.max(30_000, pollMs * 3 + 30_000),
+      last_step: "starting", last_step_at: now, exit: null };
+    this.put("worker.json", record);
+    return {
+      heartbeat: step => {
+        record.heartbeat = new Date().toISOString();
+        if (step) { record.last_step = step; record.last_step_at = record.heartbeat; }
+        this.put("worker.json", record);
+      },
+      finish: exit => {
+        record.exit = { ...exit, at: new Date().toISOString() };
+        this.put("worker.json", record);
+      },
+    };
+  }
   private checkId(id: string): void { if (!idPattern.test(id)) throw new Error("invalid delivery id"); }
   get(id: string): Delivery {
     this.checkId(id);
@@ -217,5 +291,70 @@ export class SessionBridge {
       return "queued";
     }
     return "waiting-for-handling";
+  }
+}
+
+/** The consumer process has its own lifetime. A live model session does not prove that this
+ * worker is running. Progress is persisted on each loop, never inferred from a queued event. */
+export async function runSessionBridge(bridge: SessionBridge, options: {
+  pollMs: number;
+  isRetryable?: (error: unknown) => boolean;
+  onStatus?: (status: BridgeStep | "bound" | "retrying") => void;
+}): Promise<number> {
+  const { journal } = bridge;
+  const poll = options.pollMs;
+  if (!Number.isSafeInteger(poll) || poll < 100 || poll > 30_000) throw new Error("invalid worker polling interval");
+  if (journal.stopped()) throw new Error("this bridge was stopped; use a new state directory to explicitly rearm");
+  const release = journal.lock();
+  let health: Awaited<ReturnType<BridgeJournal["startWorker"]>> | undefined;
+  let signal: "SIGINT" | "SIGTERM" | null = null;
+  let finishSleep: (() => void) | undefined;
+  const stop = (received: "SIGINT" | "SIGTERM") => {
+    signal = received;
+    journal.stop();
+    health?.heartbeat("stopping");
+    finishSleep?.();
+  };
+  const interrupt = () => stop("SIGINT"), terminate = () => stop("SIGTERM");
+  let exit: Omit<NonNullable<WorkerRecord["exit"]>, "at"> = { code: 1, signal: null, reason: "worker-error" };
+  process.once("SIGINT", interrupt); process.once("SIGTERM", terminate);
+  try {
+    health = await journal.startWorker(poll);
+    options.onStatus?.("bound");
+    let last = "", backoff = poll;
+    while (!signal) {
+      health.heartbeat();
+      try {
+        const status = await bridge.step();
+        health.heartbeat(status);
+        if (status !== last) options.onStatus?.(status);
+        last = status; backoff = poll;
+        if (status === "stopped") {
+          exit = { code: 0, signal: null, reason: journal.stopped() ? "stopped" : "session-ended" };
+          journal.stop();
+          break;
+        }
+      } catch (error) {
+        if (!options.isRetryable?.(error)) throw error;
+        health.heartbeat("retrying");
+        if (last !== "retrying") options.onStatus?.("retrying");
+        last = "retrying"; backoff = Math.min(backoff * 2, 10_000);
+      }
+      if (!signal) await new Promise<void>(resolve => {
+        const timer = setTimeout(() => { finishSleep = undefined; resolve(); }, backoff);
+        finishSleep = () => { clearTimeout(timer); finishSleep = undefined; resolve(); };
+      });
+    }
+    if (signal) exit = { code: signal === "SIGINT" ? 130 : 143, signal, reason: "signal" };
+    return exit.code;
+  } catch (error) {
+    // A request already in flight may fail after its host terminates the worker. Preserve
+    // the observed shutdown signal rather than relabelling that stop as a transport failure.
+    if (!signal) throw error;
+    exit = { code: signal === "SIGINT" ? 130 : 143, signal, reason: "signal" };
+    return exit.code;
+  } finally {
+    process.removeListener("SIGINT", interrupt); process.removeListener("SIGTERM", terminate);
+    try { health?.finish(exit); } finally { release(); }
   }
 }
