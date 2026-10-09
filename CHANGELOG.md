@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Shared session delivery with a provider-neutral `SessionAdapter` interface and a native Codex
+  terminal adapter. `bridge run/show/handled/status/stop` binds only an existing live session,
+  queues references and fingerprints, and acknowledges an existing subscription only after a
+  durable local handling receipt. It never starts or resumes a model session.
+- Private delivery journals preserve pending work and deduplication across worker restarts;
+  stale sessions, retention gaps, conflicting cursors and invalid observations stop delivery.
+- Provider-neutral workspace and adapter documentation, including Claude Code Monitor and
+  attended pull for hosts without a verified wake capability. Wire protocol semantics stay at v0.
+
 ## v0.2.0
 
 Released 2026-10-07. Four behaviour changes, so the minor version moves: a name is not a key, a dead

@@ -5,17 +5,17 @@
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![CI status](https://github.com/mentu-ai/monitor-protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/mentu-ai/monitor-protocol/actions/workflows/ci.yml)
 
-**The Claude Code Monitor tool idea, taken out of the session and made durable, shareable and accountable.**
+**Shared monitors for people and agents: durable observations, independent subscriptions, and delivery into the tools they use.**
 
 [Read the documentation](https://docs.mentu.ai/monitor-protocol/overview) · [Try it in your browser](https://docs.mentu.ai/monitor-protocol/playground) · [Quickstart](https://docs.mentu.ai/monitor-protocol/quickstart) · [Package on npm](https://www.npmjs.com/package/@mentu/monitor-protocol)
 
 ## The idea
 
-The Claude Code Monitor tool has the right instinct. You point it at something, it watches, and it tells you when something happens.
+A workspace can have people working in Codex, Claude Code, other agent tools, and ordinary terminals. They need to observe the same work while keeping their own place in it.
 
-Its limits come from where it lives. It stops when the session stops. It runs for [thirty minutes at most](https://code.claude.com/docs/en/tools-reference). Only the session that started it can see it. And it remembers nothing. So every session starts its own watches again, and whatever happened in between is gone.
+The Monitor Protocol gives them a shared service. A monitor exists independently of any conversation, records observations with provenance, and lets each participant subscribe with its own durable cursor. HTTP, SSE, and MCP expose the same objects and rules.
 
-The Monitor Protocol keeps the instinct and removes those limits. A monitor becomes something that exists on its own. Many people and agents can subscribe to it. It remembers what it saw. And an AI can set it up or change it through a defined interface, instead of editing a script.
+Delivery into a live conversation is a separate adapter. Claude Code's Monitor tool can follow a subscription. The Codex terminal bridge in this checkout can notify an existing, human-opened session through its native queue. A client without a supported wake mechanism can pull when its user returns. The workspace and its observations survive the end of any one session.
 
 ## What it does
 
@@ -61,7 +61,7 @@ curl -s localhost:8130/mp/v0/monitors/ci/observations -H "Authorization: Bearer 
   -d '{"type":"com.example.ci.run","subject":"build-412","actor":"probe:ci","tier":"measured","origin":"probe","data":{"status":"failed"}}'
 
 # 3. A reader subscribes once, then takes what it has not seen yet.
-curl -s localhost:8130/mp/v0/subscriptions -d '{"monitor":"ci","subscriber":"agent:claude","capabilities":["observe"]}'
+curl -s localhost:8130/mp/v0/subscriptions -d '{"monitor":"ci","subscriber":"agent:reviewer","capabilities":["observe"]}'
 curl -s "localhost:8130/mp/v0/subscriptions/$SUBSCRIPTION/pull" -H "Authorization: Bearer $READER_TOKEN"
 
 # 4. It commits only after handling it. Send the "next" value from the pull reply.
@@ -70,9 +70,34 @@ curl -s localhost:8130/mp/v0/subscriptions/$SUBSCRIPTION/ack -H "Authorization: 
 
 Reading never moves the cursor. Only an acknowledgement does, and it never moves backwards. The [quickstart](https://docs.mentu.ai/monitor-protocol/quickstart) walks through each reply.
 
-## Use it from Claude Code and other AI tools
+## Use it from your workspace
 
-From Claude Code, it is one watch per session against the monitor server, instead of one per thing. From any AI client, it is a set of tools over the [Model Context Protocol](https://modelcontextprotocol.io) (MCP).
+Give each participant its own subscription. Reading or waking one participant does not advance another participant's cursor. Connecting a client over [MCP](https://modelcontextprotocol.io) gives it tools; whether it can start a turn from a notification depends on its host.
+
+| Client | How it receives work | What advances its cursor |
+| --- | --- | --- |
+| Codex in an existing terminal session | Optional bridge to the live session's native `queue` capability | An explicit `bridge handled` receipt after processing |
+| Claude Code with the Monitor tool | `watch` running in a Monitor arm | The session runs `ack` after processing |
+| Other MCP, HTTP, or terminal clients | Pull; a host-specific wake adapter where one is implemented | The client acknowledges after processing |
+
+### Codex terminal bridge
+
+The bridge is available in this checkout; it is not included in the published 0.2.0 package. Build it locally, then run it from the Codex session a person already opened:
+
+```bash
+npm ci
+npm run build
+# Set MP_SUBSCRIPTION_TOKEN securely to this participant's existing reader token.
+node dist/index.js bridge run --adapter codex \
+  --base http://localhost:8130 --subscription <id> \
+  --token-env MP_SUBSCRIPTION_TOKEN --state ~/.monitor-protocol/codex-session
+```
+
+The bridge discovers that session, checks its native queue capability, and stops when the session dies or `bridge stop` is requested. It never opens or resumes a model session. A notification carries a delivery reference and fingerprint. The session reads it with `bridge show`, handles it under its existing authority, and records a disposition with `bridge handled`. Only then does the bridge acknowledge the subscription.
+
+The [session bridge guide](docs/session-bridge.md) covers commands, supported platforms, receipts, retries, and how to add another provider adapter.
+
+### Claude Code and MCP
 
 Add it to Claude Code as an MCP server. It runs its own monitor server, so give it its own state file:
 
@@ -86,7 +111,9 @@ Or follow a subscription from a session with the Monitor tool:
 Monitor(command: "npx -y @mentu/monitor-protocol watch --base http://localhost:8130 --subscription <id> --token <token> --catch-up")
 ```
 
-The watch prints one line per observation and, after each batch, `NEXT <cursor>`. It acknowledges nothing: once the session has handled the batch, it runs `monitor-protocol ack --cursor <n>`. When the Monitor's time runs out, start it again. The subscription remembers the last place the session acknowledged, so nothing is missed, not even a batch printed to a session that died before handling it. If the server restarts, the watch prints `DOWN`, waits, and carries on when the server is back. The guide [Claude Code and MCP](https://docs.mentu.ai/monitor-protocol/claude-code) covers both, and the tools.
+The watch prints one line per observation and, after each batch, `NEXT <cursor>`. By default the CLI acknowledges nothing: once the session has handled the batch, it runs `monitor-protocol ack --base <url> --subscription <id> --token <token> --cursor <n>`. When the Monitor's time runs out, start it again. The subscription remembers the last place the session acknowledged, so an unhandled batch remains eligible for redelivery within the server's retention period. If the server restarts, the watch prints `DOWN`, waits, and carries on when the server is back. The guide [Claude Code and MCP](https://docs.mentu.ai/monitor-protocol/claude-code) covers both, and the tools.
+
+The `watch` command also works in an ordinary terminal. Printing or enqueueing a notification is not processing it. Do not use the compatibility option `--ack-on-print` for a session that still needs to act on the output. Library callers must set `ackAfterPrint: false` explicitly; its historical default remains `true`.
 
 ## Safe by default on your machine
 
@@ -112,9 +139,9 @@ A monitor server usually runs next to a web browser, so it assumes every web pag
 | --- | --- |
 | [`spec/`](spec/) | The specification: [principles](spec/00-principles.md), [objects](spec/01-objects.md), [methods](spec/02-methods.md), [bindings](spec/03-bindings.md), [delivery](spec/04-delivery.md) and the [conformance checklist](spec/05-conformance.md) |
 | [`schemas/`](schemas/) | A JSON Schema for every object. Where the prose and a schema disagree, the schema wins. |
-| [`src/`](src/) | The reference server, the command line tool, the MCP server and a client, in TypeScript |
+| [`src/`](src/) | The reference server, CLI, MCP server, clients, and session bridge, in TypeScript |
 | [`conformance/`](conformance/) | The conformance suite in Python, next to the TypeScript one in `src/` |
-| [`adapters/`](adapters/README.md) | Known implementations, and what each one taught the specification |
+| [`adapters/`](adapters/README.md) | Server implementations and session delivery adapters, with their separate compatibility requirements |
 | [`docs/`](docs/) | Why each design choice was made, including a running [decision log](docs/decisions.md) |
 
 ## Build your own implementation
@@ -126,7 +153,7 @@ npx @mentu/monitor-protocol conform --base http://127.0.0.1:8124
 python3 conformance/python/run.py --base http://127.0.0.1:8124 --subjects a,b,c
 ```
 
-The suite has 31 checks. The reference server in this repository passes all of them. Atrio, an event log, is the second implementation; it keeps everything, so the check that needs old entries deleted is skipped there.
+The suite covers C01–C34. Run it against the version you intend to deploy. Atrio, an event log, is a second implementation; its published results and limitations are recorded in [the implementation guide](adapters/README.md). Server conformance and the ability to wake a particular session are tested separately.
 
 To use the reference server as a library:
 
@@ -137,7 +164,7 @@ const service = new MonitorService(new MemoryStore("state.json"));
 
 ## Status
 
-Version 0.1, published on npm. The objects and methods are stable enough to build on. Names such as the `ai.mentu` prefix may still change before version 1.0, and every change is listed in the [changelog](CHANGELOG.md). Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
+Version 0.2.0 is published on npm. This checkout also contains the session bridge described above. The objects and methods are stable enough to build on. Names such as the `ai.mentu` prefix may still change before version 1.0, and every release is listed in the [changelog](CHANGELOG.md). Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

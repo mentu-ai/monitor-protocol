@@ -59,10 +59,33 @@ processing is the only way to lose an observation, which is why `pull` never com
 | REST + JSON-RPC (`/mp/v0`) | scripts, other services, the Python conformance runner | `node:http` only, no dependencies |
 | SSE (`/subscriptions/{id}/stream`) | browsers and long-lived readers | `id:` is the seq, `Last-Event-ID` resumes, heartbeat every 5 s; only `ack` commits |
 | MCP extension `ai.mentu/monitors` | AI hosts | tools plus `monitor://{id}/definition` and `monitor://{id}/state`; `resources/updated` is the wake-up |
-| `watch` loop | a Claude Code Monitor arm | prints one line per observation and `NEXT <cursor>`; the session acks after handling (`ack`) |
+| `watch` loop | terminals and hosts such as Claude Code Monitor | prints one line per observation and `NEXT <cursor>`; the session acks after handling (`ack`) |
+| session bridge | an existing live session with a supported delivery adapter | pulls and journals an observation, sends a reference, waits for a durable handling receipt, then acks |
 
 The installed MCP SDK has no `extensions` field on server capabilities, so the extension id
 currently travels under `experimental`; the name is the one the spec fixes.
+
+## Shared service, session-specific delivery
+
+A workspace can have several participants using different hosts. Each has its own subscription
+and cursor over the same monitor. The server owns durable observation and delivery semantics;
+the host owns the conversation and whether it can accept a wake-up.
+
+The optional bridge implements the consumer side of that boundary. Its generic delivery loop
+keeps a private journal and calls a session adapter to check a live binding and enqueue a
+notification. The first adapter uses Codex's native queue in an already human-opened terminal
+session. It does not open or resume conversations. Claude Code's Monitor tool can run the
+existing `watch` loop, and clients without a wake mechanism can pull when attended.
+
+Enqueue success does not mean the session processed an observation. The session must inspect the
+referenced event and write a durable disposition before the bridge acknowledges. That local
+receipt is a user-owned assertion; integrations that need independent verification can validate
+their own evidence before writing it. Duplicate notifications are possible, so delivery and
+effect deduplication remain necessary.
+
+Stopping a bridge or ending its bound session stops that consumer process. It does not retire
+the shared monitor or subscription. Their ordinary persistence, retention, and retirement rules
+still apply. See [Session bridge](session-bridge.md) for the adapter contract and failure cases.
 
 ## Single writer
 

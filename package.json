@@ -20,6 +20,8 @@
     "!dist/__tests__",
     "!dist/**/*.js.map",
     "!dist/**/*.d.ts.map",
+    "!**/__pycache__/**",
+    "!**/*.pyc",
     "README.md",
     "NOTICE"
   ],
@@ -63,6 +65,7 @@
     "observability",
     "agents",
     "claude",
+    "codex",
     "mentu"
   ],
   "author": "Mentu AI (https://github.com/mentu-ai)",
