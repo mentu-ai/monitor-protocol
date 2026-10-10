@@ -5,7 +5,7 @@ durable cursors. A session bridge supplies delivery into a particular tool. A wo
 several tools without changing its monitors or making one provider's session the workspace.
 
 The CLI bridge in this checkout is a consumer of the existing protocol. It adds no wire methods or
-objects. It is not included in the published 0.2.0 package. A separate
+objects. It ships in the package from 0.3.0. A separate
 [native Codex preview](../integrations/codex-native/README.md) moves the consumer into the rebuilt
 harness. The [shared terminal peers and routines guide](use-cases/shared-terminal-peers.md)
 explains how these delivery arrangements relate to a shared ticket workspace.

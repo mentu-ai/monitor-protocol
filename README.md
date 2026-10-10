@@ -116,7 +116,7 @@ an MCP server, or a skill, and it does not modify an already running Codex conve
 
 ### Codex terminal bridge
 
-The bridge is available in this checkout; it is not included in the published 0.2.0 package. Build it locally, then run it from the Codex session a person already opened:
+The bridge ships in the package from 0.3.0. Until 0.3.0 is on npm, build it from this checkout, then run it from the Codex session a person already opened:
 
 ```bash
 npm ci
@@ -199,7 +199,7 @@ const service = new MonitorService(new MemoryStore("state.json"));
 
 ## Status
 
-Version 0.2.0 is published on npm. This checkout also contains the session bridge described above. The objects and methods are stable enough to build on. Names such as the `ai.mentu` prefix may still change before version 1.0, and every release is listed in the [changelog](CHANGELOG.md). Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
+Releases are tagged on GitHub and listed in the [changelog](CHANGELOG.md). The npm registry has 0.1.3; 0.2.0 was tagged but not published there, and 0.3.0 is published from the tarball that CI builds. The current release includes the session bridge described above. The objects and methods are stable enough to build on. Names such as the `ai.mentu` prefix may still change before version 1.0. Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

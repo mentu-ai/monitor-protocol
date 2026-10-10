@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.3.0
 
 - Owning-host session bindings. `bindClaudeSession` binds an attended Claude Code session by
   process ancestry, start time, terminal and running image; its session id is declared (a hook
