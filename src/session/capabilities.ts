@@ -113,6 +113,16 @@ function bindingCopy(binding: CapabilityBinding): CapabilityBinding {
   }
   return b;
 }
+/** RFC 6901 pointer spelling, scanned once without ambiguous repetition/backtracking. */
+function validPointer(path: string): boolean {
+  if (path !== "" && !path.startsWith("/")) return false;
+  for (let i = 0; i < path.length; i++) {
+    if (path[i] !== "~") continue;
+    if (path[i + 1] !== "0" && path[i + 1] !== "1") return false;
+    i++;
+  }
+  return true;
+}
 function profileCopy(profile: CapabilityProfile): CapabilityProfile {
   const p = clone(profile, "INVALID_PROFILE");
   if (!record(p) || p.version !== 1 || !text(p.id) ||
@@ -133,7 +143,7 @@ function profileCopy(profile: CapabilityProfile): CapabilityProfile {
     ids.add(c.id); tools.add(toolKey);
     for (const a of c.probe.assertions) {
       if (!record(a) || typeof a.path !== "string" || a.path.length > 4096 ||
-          !/^(?:\/(?:[^~]|~[01])*)*$/.test(a.path) || !Object.hasOwn(a, "equals")) {
+          !validPointer(a.path) || !Object.hasOwn(a, "equals")) {
         fail("INVALID_PROFILE", "Probe assertions require JSON pointers and explicit expected values");
       }
     }

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
   admitCapabilityWork, assertCapabilityReceipt, capabilityDigest, CodexAppServerCapabilities,
   preflightCapabilities, type CapabilityBinding, type CapabilityProfile, type CodexCapabilityRpc,
@@ -262,4 +264,20 @@ test("JSON pointer assertions preserve escaped keys and distinguish missing from
   await preflightCapabilities(f.profile, f.expected, f.adapter);
   f.setResult({ content: [], structuredContent: { "a/b": {} } });
   await assert.rejects(preflightCapabilities(f.profile, f.expected, f.adapter), { code: "PROBE_FAILED" });
+});
+
+test("malformed slash-heavy pointers refuse within a bounded child process", async () => {
+  const f = fixture();
+  const script = `import { preflightCapabilities } from ${JSON.stringify(new URL("../session/capabilities.js", import.meta.url).href)};
+    const {profile,binding}=JSON.parse(process.argv[1]);
+    for (const path of ['/'.repeat(4095)+'~', '/'.repeat(4094)+'~2', 'not/a/pointer']) {
+      profile.required[0].probe.assertions=[{path,equals:null}];
+      try { await preflightCapabilities(profile,binding,{}); throw new Error('unexpected admission'); }
+      catch(error) { if(error.code!=='INVALID_PROFILE') throw error; }
+    }
+    console.log('refused');`;
+  const result = await promisify(execFile)(process.execPath,
+    ["--input-type=module", "-e", script, JSON.stringify({ profile: f.profile, binding: f.expected })],
+    { timeout: 2000, maxBuffer: 4096 });
+  assert.equal(result.stdout.trim(), "refused");
 });
