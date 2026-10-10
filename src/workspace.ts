@@ -108,10 +108,14 @@ export async function workspaceStatus(input: unknown, now = Date.now()) {
       const item = journal.pending();
       const handling = handlingStatus(journal, item, now, p.handlingWithinMs);
       // A running queue worker is transport health, not runtime tool readiness or native wake.
-      return { ...base, transport: journal.stopped() ? "stopped" : health?.healthy ? "running" : "unavailable",
-        worker: health?.state ?? "unknown", delivery: item?.id ?? null, handling,
-        phase: handling.state === "evidence-invalid" ? "unknown" :
-          item ? handling.state === "handled-awaiting-ack" ? "handled" : journal.queued(item.id) ? "queued" : "pending" : "idle" };
+      let transport = "unavailable", phase = "unknown";
+      try { transport = journal.stopped() ? "stopped" : health?.healthy ? "running" : "unavailable"; }
+      catch { /* Invalid transport markers cannot erase independent handling evidence. */ }
+      if (handling.state !== "evidence-invalid") {
+        try { phase = item ? handling.state === "handled-awaiting-ack" ? "handled" : journal.queued(item.id) ? "queued" : "pending" : "idle"; }
+        catch { /* Queue acceptance is unknown, but the receipt deadline still applies. */ }
+      }
+      return { ...base, transport, worker: health?.state ?? "unknown", delivery: item?.id ?? null, handling, phase };
     } catch (error) { return { ...base, transport: "unavailable", handling:
       emptyHandling((error as NodeJS.ErrnoException).code === "ENOENT" ? "unobserved" : "evidence-invalid") }; }
   }));

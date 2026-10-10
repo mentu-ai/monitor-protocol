@@ -184,6 +184,22 @@ test("valid handling remains distinct from acknowledgement and views contain onl
   assert.deepEqual(f.bytes(), acknowledgedBytes);
 });
 
+test("broken queue and stop markers cannot erase a readable handling deadline", async t => {
+  const f = journalFixture(t); f.config.participants[0].handlingWithinMs = 1000;
+  const item = f.journal.add(f.event, 8), created = Date.parse(item.created);
+  f.journal.markQueued(item.id);
+  f.journal.stop();
+  for (const name of [`queued-${item.id}.json`, "stopped.json"])
+    writeFileSync(join(f.journal.path, name), "{private-invalid-marker");
+  const before = f.bytes();
+  const participant = (await workspaceStatus(f.config, created + 1000)).participants[0];
+  assert.equal(participant.transport, "unavailable");
+  assert.equal(participant.phase, "unknown");
+  assert.equal(participant.handling.state, "handling-overdue");
+  assert.equal(participant.delivery, item.id);
+  assert.deepEqual(f.bytes(), before);
+});
+
 test("malformed or future delivery times and reversed, future or malformed receipt times are invalid evidence", async t => {
   const f = journalFixture(t); f.config.participants[0].handlingWithinMs = 1000;
   const item = f.journal.add(f.event, 8), created = Date.parse(item.created), observed = created + 1000;
