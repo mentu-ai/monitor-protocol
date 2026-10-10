@@ -2,8 +2,12 @@
 
 ## Unreleased
 
-- Shared session delivery with a provider-neutral `SessionAdapter` interface and a native Codex
-  terminal adapter. `bridge run/show/handled/status/stop` binds only an existing live session,
+- Native Codex runtime preview, distributed as a pinned source patch under
+  `integrations/codex-native/`: a Rust/Tokio consumer, operator-registered sources, exact frontend
+  ownership, revocable Core idle admission, durable receipts, and explicit recovery. Requires
+  rebuilding Codex; it does not hot-load into installed sessions or ship as an npm executable.
+- Shared session delivery with a provider-neutral `SessionAdapter` interface and a Codex
+  terminal queue adapter. `bridge run/show/handled/status/stop` binds only an existing live session,
   queues references and fingerprints, and acknowledges an existing subscription only after a
   durable local handling receipt. It never starts or resumes a model session.
 - Private delivery journals preserve pending work and deduplication across worker restarts;

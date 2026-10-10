@@ -1,0 +1,15 @@
+{
+  "format_version": 1,
+  "name": "codex-native-monitor",
+  "status": "preview",
+  "upstream": {
+    "repository": "https://github.com/openai/codex",
+    "commit": "4aa94dce270de668eff6e2fa8585c82385e84455"
+  },
+  "patch": {
+    "file": "codex-native-monitor.patch",
+    "sha256": "2853efc617273d378c3666c7d197c1125ac0567f55fab583e97c6c9317ad15fb"
+  },
+  "rust_toolchain": "1.95.0",
+  "license": "Apache-2.0"
+}

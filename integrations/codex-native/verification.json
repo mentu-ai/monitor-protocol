@@ -1,0 +1,113 @@
+{
+  "format_version": 1,
+  "platform": "macOS arm64",
+  "upstream_commit": "4aa94dce270de668eff6e2fa8585c82385e84455",
+  "patch_sha256": "2853efc617273d378c3666c7d197c1125ac0567f55fab583e97c6c9317ad15fb",
+  "rust_toolchain": "1.95.0",
+  "environment": {
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "6"
+  },
+  "suites": [
+    {
+      "name": "extension",
+      "command": "cargo +1.95.0 test --locked -p codex-monitor-extension --lib",
+      "passed": 37,
+      "failed": 0,
+      "tests": [
+        "journal::tests::explicit_rearm_cannot_change_thread_or_source",
+        "journal::tests::deduplicates_delivery_metadata_and_rejects_changed_content_or_second_pending",
+        "journal::tests::fingerprint_is_canonical_and_invalid_identifiers_cannot_escape_directory",
+        "journal::tests::directory_and_records_are_private_and_symlinks_are_refused",
+        "journal::tests::old_owner_session_or_source_cannot_reattach_existing_journal",
+        "runtime::tests::model_start_requires_an_operator_registered_source",
+        "runtime::tests::another_thread_cannot_show_handle_stop_or_steal_a_subscription",
+        "runtime::tests::declined_idle_admission_retains_event_until_the_existing_thread_can_accept",
+        "runtime::tests::empty_filtered_scan_advances_only_after_a_durable_scan_receipt_without_waking_model",
+        "runtime::tests::empty_scan_cannot_skip_an_observation_that_is_waiting_for_handling",
+        "runtime::tests::owner_revocation_serializes_with_a_start_waiting_for_host_ownership",
+        "journal::tests::durable_delivery_and_receipt_survive_reopen_without_ack_on_enqueue",
+        "runtime::tests::permanent_source_error_fails_closed_without_recording_server_secrets",
+        "journal::tests::empty_scan_receipt_is_durable_exclusive_and_bound_to_its_source",
+        "runtime::tests::quiescent_source_with_no_cursor_advance_does_not_ack_or_wake",
+        "runtime::tests::explicit_rearm_redelivers_unhandled_event_with_stable_id_and_fingerprint",
+        "journal::tests::tampered_scan_receipt_or_ack_cannot_be_recovered",
+        "runtime::tests::owner_disconnect_cancels_and_joins_without_ack_or_rearm",
+        "source::tests::empty_filtered_page_retains_its_validated_scan_range_without_committing",
+        "runtime::tests::lost_scan_ack_response_recovers_without_pull_or_model_handling_after_explicit_rearm",
+        "runtime::tests::lost_ack_response_retries_from_the_receipt_without_another_wake",
+        "source::tests::real_http_pull_is_read_only_and_ack_requires_exact_cursor_response",
+        "source::tests::redirects_auth_wrong_subscription_malformed_and_oversized_http_fail_closed",
+        "runtime::tests::stopping_revokes_an_admission_predicate_even_after_the_delivery_future_is_dropped",
+        "source::tests::rejects_malformed_events_retention_gaps_and_unexpected_cursor_changes",
+        "runtime::tests::teardown_cancels_an_inflight_source_future_and_never_rebinds_saved_deliveries",
+        "runtime::tests::explicit_rearm_recovers_handling_receipt_and_acks_without_reinjection",
+        "source::tests::restricts_bases_and_does_not_expose_environment_credentials",
+        "tools::tests::model_cannot_supply_identity_credentials_or_a_polling_command",
+        "runtime::tests::native_worker_survives_tool_return_and_requires_durable_handling_before_ack",
+        "runtime::tests::stable_subscription_lock_excludes_another_service_and_preserves_thread_binding",
+        "runtime::tests::uncertain_native_acceptance_repeats_one_delivery_and_never_auto_acks",
+        "journal::tests::explicit_same_thread_rearm_retains_receipts_and_reissues_only_unhandled_metadata",
+        "runtime::tests::unsubscribe_only_stops_the_matching_owner_thread_and_explicit_stop_allows_new_run",
+        "source::tests::lost_empty_scan_ack_recovers_same_cursor_before_another_pull",
+        "source::tests::committed_ack_with_lost_response_recovers_from_durable_receipt_after_explicit_rearm",
+        "journal::tests::tampered_delivery_receipt_or_acknowledgement_cannot_advance"
+      ]
+    },
+    {
+      "name": "core_admission",
+      "command": "cargo +1.95.0 test -p codex-core --lib start_guard",
+      "passed": 4,
+      "failed": 0,
+      "tests": [
+        "session::turn_input::tests::revoked_start_guard_rejects_without_turn_settings_or_pending_input",
+        "session::turn_input::tests::start_guard_cannot_be_silently_ignored_by_steering::steer_only",
+        "session::turn_input::tests::start_guard_cannot_be_silently_ignored_by_steering::start_or_steer",
+        "session::turn_input::tests::start_guard_is_rechecked_after_idle_reservation_at_settings_commit"
+      ]
+    },
+    {
+      "name": "app_server_ownership",
+      "command": "cargo +1.95.0 test --locked -p codex-app-server --lib native_monitor::tests",
+      "passed": 2,
+      "failed": 0,
+      "tests": [
+        "native_monitor::tests::resubscription_cannot_revive_a_queued_admission_lease",
+        "native_monitor::tests::binding_requires_one_owner_and_never_migrates_to_another_subscriber"
+      ]
+    },
+    {
+      "name": "app_server_integration",
+      "command": "cargo +1.95.0 test --locked -p codex-app-server --test all v2::native_monitor",
+      "passed": 2,
+      "failed": 0,
+      "tests": [
+        "suite::v2::native_monitor::native_monitor_unsubscribe_stops_delivery_while_thread_stays_loaded",
+        "suite::v2::native_monitor::native_monitor_wakes_idle_thread_and_acks_only_after_handled"
+      ]
+    }
+  ],
+  "total_passed": 45,
+  "clean_upstream_apply": {
+    "passed": true,
+    "files_byte_identical": 22
+  },
+  "model": "simulated Responses server; no real model calls",
+  "attended_terminal_wake_trial": "not performed for this native runtime preview",
+  "verified_at_utc": "2026-10-10T00:08:42.926267+00:00",
+  "local_native_commit": "6b1bbc31ed99a3c22f9acada1efe0c0bdcd25d5c",
+  "cli_build": {
+    "command": "cargo +1.95.0 build --locked -p codex-cli --bin codex",
+    "passed": true,
+    "version": "codex-cli 0.0.0",
+    "binary_sha256": "9e266a4f8a39a1f2e46257b9a1627da0d6b74c8af00cf75f081a1875f0355eea",
+    "binary_bytes": 573017104,
+    "smoke_checks": [
+      "--version",
+      "--help (includes --no-daemon)",
+      "app-server --help"
+    ]
+  }
+}

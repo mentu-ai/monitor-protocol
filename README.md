@@ -76,9 +76,21 @@ Give each participant its own subscription. Reading or waking one participant do
 
 | Client | How it receives work | What advances its cursor |
 | --- | --- | --- |
+| Codex with the native runtime preview | A Rust/Tokio consumer inside the rebuilt App Server wakes the existing attended thread when idle | `monitor_handled` for observations; durable scan receipts for empty filtered ranges |
 | Codex in an existing terminal session | Optional bridge to the live session's native `queue` capability | An explicit `bridge handled` receipt after processing |
 | Claude Code with the Monitor tool | `watch` running in a Monitor arm | The session runs `ack` after processing |
 | Other MCP, HTTP, or terminal clients | Pull; a host-specific wake adapter where one is implemented | The client acknowledges after processing |
+
+### Native Codex runtime preview
+
+The [native Codex integration](integrations/codex-native/README.md) contains a pinned source patch
+and build instructions. It adds session-owned `monitor_start`, `monitor_status`, `monitor_show`,
+`monitor_handled`, and `monitor_stop` tools inside Codex. An operator registers each source;
+disconnecting or unsubscribing its owning frontend cancels the native consumer. Events arriving
+during a turn stay pending until guarded idle admission.
+
+This requires the rebuilt Codex runtime. It is not activated by installing this npm package,
+an MCP server, or a skill, and it does not modify an already running Codex conversation.
 
 ### Codex terminal bridge
 
@@ -142,6 +154,7 @@ A monitor server usually runs next to a web browser, so it assumes every web pag
 | [`src/`](src/) | The reference server, CLI, MCP server, clients, and session bridge, in TypeScript |
 | [`conformance/`](conformance/) | The conformance suite in Python, next to the TypeScript one in `src/` |
 | [`adapters/`](adapters/README.md) | Server implementations and session delivery adapters, with their separate compatibility requirements |
+| [`integrations/codex-native/`](integrations/codex-native/) | Pinned patch and build instructions for the native Codex runtime preview |
 | [`docs/`](docs/) | Why each design choice was made, including a running [decision log](docs/decisions.md) |
 
 ## Build your own implementation

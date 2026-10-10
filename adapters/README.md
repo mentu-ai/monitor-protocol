@@ -10,6 +10,7 @@ These are two different integration points:
 
 | Client | Delivery path | Support boundary |
 |---|---|---|
+| Codex native runtime preview | In-process Rust/Tokio task with guarded idle admission | [Pinned source patch](../integrations/codex-native/README.md); rebuilt runtime, exact subscribed frontend ownership, operator-registered sources |
 | Codex terminal | `bridge run --adapter codex` uses the live process's native `queue` | macOS/Linux terminal binding and a detected queue capability; an existing human-opened session only |
 | Claude Code Monitor | Runs the generic `watch` CLI in its Monitor tool | The host owns the Monitor lifecycle; the session handles output and explicitly acknowledges it |
 | Other providers and clients | HTTP/MCP pull, or a separately implemented session adapter | Pull is available; automatic wake is not implied by MCP support |
