@@ -68,6 +68,15 @@ UTF-8, no trailing newline, `sha256:` prefix. Pin the **full advertised MCP Tool
 object**, including its schema, description, and annotations. Review contract
 changes; do not automatically replace a pin with whatever discovery returns.
 
+Distinct semantic IDs may share a server/tool when they pin the same full contract.
+For example, `desktop.observe` and `browser.observe` can use one code-mode
+`execute_api` tool with different fixed operator-defined arguments and assertions.
+Every requirement gets its own live call and receipt check; all must pass before
+work starts. The profile digest includes each probe. Duplicate semantic IDs,
+conflicting pins for one server/tool, and duplicate advertised inventory entries
+are refused. Sharing a tool does not establish additional capabilities without
+their own successful probes.
+
 The host's `getBinding(signal)` must read its current, authoritative runtime state.
 It must not simply echo the expected binding. The configuration digest covers the
 effective model, tool attachment, permissions, and other relevant runtime settings.
@@ -104,7 +113,7 @@ be bound to the same owned runtime represented by `getBinding`. The library send
    tool, and arguments for every required capability.
 
 It validates every required contract before probing any tool. Duplicate capability
-IDs, duplicate server/tool requirements, invalid catalogues, missing tools, contract
+IDs, conflicting pins for a shared tool, invalid catalogues, missing tools, contract
 drift, RPC failures, malformed MCP results, `isError`, failed semantic assertions,
 binding drift, deadline overrun, and expiry refuse admission. JSON pointer assertions
 support escaped keys and compare complete JSON values, distinguishing missing from

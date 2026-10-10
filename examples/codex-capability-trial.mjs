@@ -101,7 +101,12 @@ try {
   const binding = { provider: 'codex', sessionId: threadId, runtimeId,
     configSha256: capabilityDigest({ config, executableSha256, cwd: started.cwd, model: started.model,
       approvalPolicy: started.approvalPolicy, sandbox: started.sandbox }), workspace };
-  const adapter = new CodexAppServerCapabilities({ request }, async signal => {
+  let successfulProbeCalls = 0;
+  const adapter = new CodexAppServerCapabilities({ request: async (method, params, options) => {
+    const response = await request(method, params, options);
+    if (method === 'mcpServer/tool/call') successfulProbeCalls++;
+    return response;
+  } }, async signal => {
     assertActive();
     signal.throwIfAborted();
     if (stopped) throw new Error('Runtime stopped');
@@ -113,23 +118,30 @@ try {
   const pinnedTool = { name: 'read_probe', description: 'Read the fixed continuity probe.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false } };
   const profile = { version: 1, id: 'continuity-fixture-v1', ttlMs: 30_000, timeoutMs: 15_000,
-    required: [{ id: 'fixture.read', server: 'continuity_fixture', tool: 'read_probe',
+    required: [{ id: 'fixture.identity', server: 'continuity_fixture', tool: 'read_probe',
       toolSha256: capabilityDigest(pinnedTool), probe: { kind: 'read-only', arguments: {},
-        assertions: [{ path: '/structuredContent/fixture', equals: 'continuity-v1' },
-          { path: '/structuredContent/total', equals: 64 }] } }] };
+        assertions: [{ path: '/structuredContent/fixture', equals: 'continuity-v1' }] } },
+      { id: 'fixture.total', server: 'continuity_fixture', tool: 'read_probe',
+        toolSha256: capabilityDigest(pinnedTool), probe: { kind: 'read-only', arguments: {},
+          assertions: [{ path: '/structuredContent/total', equals: 64 }] } }] };
   const workspaceProfile = { version: 1, id: profile.id, ttlMs: profile.ttlMs, timeoutMs: profile.timeoutMs,
-    required: ['fixture.read'], providers: { codex: profile.required } };
+    required: ['fixture.identity', 'fixture.total'], providers: { codex: profile.required } };
   const admitted = await admitWorkspaceCapabilityWork(workspaceProfile, binding, adapter, () => {
     assertActive();
     return { admitted: true, effect: 'no-op' };
   });
   let refused = false;
-  try { await admitWorkspaceCapabilityWork({ ...workspaceProfile, providers: { codex: [{ ...profile.required[0], tool: 'absent_tool' }] } }, binding, adapter,
+  try { await admitWorkspaceCapabilityWork({ ...workspaceProfile, providers: { codex: profile.required.map((capability, index) =>
+    index === 0 ? { ...capability, tool: 'absent_tool' } : capability) } }, binding, adapter,
     () => { throw new Error('Unreachable work callback'); }); }
   catch (error) { if (error.code !== 'MISSING_CAPABILITY') throw error; refused = true; }
+  const verifiedCapabilities = admitted.receipt.checks.map(check => check.capability);
+  if (successfulProbeCalls !== 2 || JSON.stringify(verifiedCapabilities) !== JSON.stringify(workspaceProfile.required))
+    throw new Error('Independent semantic probes were not established');
   assertActive();
-  output = { ok: true, evidence: 'actual Codex app-server MCP discovery and live call', executableSha256,
+  output = { ok: true, evidence: 'actual Codex app-server MCP discovery and two live calls to one pinned tool', executableSha256,
     receipt: admitted.receipt, admitted: admitted.result, missingRequiredToolRefused: refused,
+    successfulProbeCalls, verifiedCapabilities,
     inferenceStarted: false, nativeWakeProven: false, fullAppParityProven: false };
 } catch (error) {
   output = { ok: false, error: cancellationSignal ? 'trial_cancelled' : error.code ?? error.message, executableSha256, stderrBytes,

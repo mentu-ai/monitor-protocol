@@ -131,7 +131,7 @@ function profileCopy(profile: CapabilityProfile): CapabilityProfile {
       !Array.isArray(p.required) || !p.required.length || p.required.length > 32) {
     fail("INVALID_PROFILE", "A bounded, nonempty v1 capability profile is required");
   }
-  const ids = new Set<string>(), tools = new Set<string>();
+  const ids = new Set<string>(), toolPins = new Map<string, string>();
   for (const c of p.required) {
     if (!record(c) || ![c.id, c.server, c.tool].every(text) || !hashPattern.test(c.toolSha256) ||
         !record(c.probe) || c.probe.kind !== "read-only" || !record(c.probe.arguments) ||
@@ -139,8 +139,11 @@ function profileCopy(profile: CapabilityProfile): CapabilityProfile {
       fail("INVALID_PROFILE", "Every capability needs a pinned tool and an operator-defined read-only probe");
     }
     const toolKey = canonical([c.server, c.tool]);
-    if (ids.has(c.id) || tools.has(toolKey)) fail("INVALID_PROFILE", "Duplicate capability or tool");
-    ids.add(c.id); tools.add(toolKey);
+    if (ids.has(c.id)) fail("INVALID_PROFILE", "Duplicate capability ID");
+    if (toolPins.has(toolKey) && toolPins.get(toolKey) !== c.toolSha256) {
+      fail("INVALID_PROFILE", "Conflicting pins for a shared tool");
+    }
+    ids.add(c.id); toolPins.set(toolKey, c.toolSha256);
     for (const a of c.probe.assertions) {
       if (!record(a) || typeof a.path !== "string" || a.path.length > 4096 ||
           !validPointer(a.path) || !Object.hasOwn(a, "equals")) {

@@ -143,14 +143,66 @@ test("disconnected cached inventory is not an available capability", async () =>
   assert.equal(f.calls.length, 1);
 });
 
-test("duplicate capability ids or duplicated server/tool declarations are refused", async () => {
-  for (const duplicate of ["id", "tool"]) {
+test("duplicate capability ids and conflicting pins for a shared tool are refused before RPC", async () => {
+  for (const duplicate of ["id", "pin"]) {
     const f = fixture();
     f.profile.required.push({ ...structuredClone(f.profile.required[0]),
-      ...(duplicate === "id" ? { tool: "other" } : { id: "other" }) });
+      ...(duplicate === "id" ? { tool: "other" } : { id: "other", toolSha256: capabilityDigest("different-contract") }) });
     await assert.rejects(preflightCapabilities(f.profile, f.expected, f.adapter), { code: "INVALID_PROFILE" });
     assert.equal(f.calls.length, 0);
   }
+});
+
+test("distinct capabilities sharing one pinned tool each require an independent successful live probe", async () => {
+  for (const secondSucceeds of [true, false]) {
+    const f = fixture(); let work = 0;
+    f.profile.required[0].id = "desktop.observe";
+    f.profile.required.push({ ...structuredClone(f.profile.required[0]), id: "browser.observe", probe: {
+      kind: "read-only", arguments: { id: "second-operator-pinned-fixture" }, assertions: [
+        { path: "/structuredContent/identity", equals: "second-operator-pinned-fixture" },
+        { path: "/structuredContent/readable", equals: true },
+      ],
+    } });
+    f.setRpc(async (method, params) => {
+      if (method === "mcpServerStatus/list") return { data: [{ name: "fixture", runtimeStatus: "connected",
+        tools: { [tool.name]: tool } }], nextCursor: null };
+      const id = (params.arguments as { id: string }).id;
+      return { content: [], structuredContent: { identity: id,
+        readable: id === "operator-pinned-fixture" || secondSucceeds } };
+    });
+    const admission = admitCapabilityWork(f.profile, f.expected, f.adapter, receipt => {
+      work++;
+      assert.equal(f.calls.length, 3, "both semantic probes finish before work");
+      return receipt.checks.map(check => check.capability);
+    });
+    if (secondSucceeds) {
+      const { receipt, result } = await admission;
+      assert.deepEqual(result, ["desktop.observe", "browser.observe"]);
+      assert.notEqual(receipt.checks[0].resultSha256, receipt.checks[1].resultSha256);
+      assertCapabilityReceipt(receipt, f.profile, f.expected);
+      const reordered = structuredClone(receipt);
+      reordered.checks.reverse();
+      const { receiptSha256: _digest, ...unsigned } = reordered;
+      reordered.receiptSha256 = capabilityDigest(unsigned);
+      assert.throws(() => assertCapabilityReceipt(reordered, f.profile, f.expected), { code: "INVALID_RECEIPT" });
+    } else {
+      await assert.rejects(admission, { code: "PROBE_FAILED" });
+    }
+    assert.equal(work, secondSucceeds ? 1 : 0);
+    assert.deepEqual(f.calls.filter(call => call.method === "mcpServer/tool/call").map(call => call.params), [
+      { threadId: "owned-thread", server: "fixture", tool: tool.name, arguments: { id: "operator-pinned-fixture" } },
+      { threadId: "owned-thread", server: "fixture", tool: tool.name, arguments: { id: "second-operator-pinned-fixture" } },
+    ]);
+  }
+});
+
+test("duplicate advertised inventory entries remain ambiguous even when schema pins agree", async () => {
+  const f = fixture(); let probes = 0, work = 0;
+  const adapter = { getBinding: f.adapter.getBinding, inventory: async () => [
+    { server: "fixture", tool: structuredClone(tool) }, { server: "fixture", tool: structuredClone(tool) },
+  ], probe: async () => { probes++; return { content: [] }; } };
+  await assert.rejects(admitCapabilityWork(f.profile, f.expected, adapter, () => { work++; }), { code: "INVALID_INVENTORY" });
+  assert.equal(probes, 0); assert.equal(work, 0);
 });
 
 test("operator probes require semantic assertions and read-only declaration", async () => {
