@@ -9,8 +9,10 @@ carries observations of changes; a consumer chooses the configured execution pat
 The [native Codex preview](../../integrations/codex-native/README.md) implements delivery into
 an existing idle session. The local Constructo trial supplies a ticket source and a
 human-operated launcher. The [event-triggered routine launcher](event-triggered-routines.md)
-is the next integration design; automatic routine launching is not implemented in this
-checkout. The local trial scripts are also not yet a public launcher or ticket adapter package.
+describes the broader contract. A bounded local/HTTPS dispatcher and one-shot MP consumer
+are implemented in [Mentu Recipes PR 12](https://github.com/mentu-ai/mentu-recipes/pull/12).
+A continuous general supervisor remains design work. The local trial scripts are also not
+yet a public launcher or ticket adapter package.
 
 ## Two ways to execute work
 
@@ -206,9 +208,12 @@ As of 2026-10-10:
   not part of the public integration bundle.
 - The live native peer ticket trial has not yet produced a wake result. The current
   coordinator uses explicit reads; a native reverse wake is also unproven.
-- Automatic event-triggered routine launching is documented as a proposed consumer
-  integration. No routine supervisor or automatic agent-spawning command is shipped here.
+- A bounded Recipes consumer has been exercised with actual Codex execution, durable
+  Construct reporting, acknowledgement and duplicate suppression. A continuous routine
+  supervisor is not shipped here; direct model tool selection and native idle wake require
+  separate evidence.
 
-The existing-session use case is ready for attended validation. Routine launcher implementation,
-general launcher packaging, more ticket-system connectors, and additional provider adapters
-remain future work.
+The existing-session use case is ready for attended validation. General launcher packaging,
+more ticket-system connectors, full session tool profiles, and additional provider adapters
+remain work to be verified. See [capability admission](../tool-capabilities.md) and
+[workspace status](../workspace-status.md) for the implemented host-side checks.

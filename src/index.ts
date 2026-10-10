@@ -16,6 +16,7 @@ import { MonitorClient } from "./client.js";
 import { expandHome } from "./paths.js";
 import { acquireStateLock } from "./lock.js";
 import { bridgeMain } from "./session/cli.js";
+import { workspaceMain } from "./workspace.js";
 
 export * from "./vocab.js";
 export * from "./types.js";
@@ -33,6 +34,9 @@ export { runConformance, printSummary, SUITE_VERSION } from "./conformance.js";
 export * from "./session/bridge.js";
 export * from "./session/codex.js";
 export * from "./session/source.js";
+export * from "./workspace.js";
+export * from "./session/capabilities.js";
+export * from "./session/workspace-capabilities.js";
 
 const USAGE = `monitor-protocol: monitors that keep watching, remember what they saw, and say what they do not know
 
@@ -50,6 +54,8 @@ const USAGE = `monitor-protocol: monitors that keep watching, remember what they
   bridge run --base <url> --subscription <id> --token-env <name> --state <private-directory>
         Deliver to an existing live Codex terminal session. No new model session is started.
         bridge show / handled / status / stop; bridge --help for details.
+  workspace status --config <file> [--html]
+        Read-only JSON or HTML snapshot for a shared workspace and Construct view.
   ack   --base <url> --subscription <id> --token <tok> --cursor <n>
         Commit the subscription's cursor once the batch before <n> is handled.
   conform (--self | --base <url>) [--admin[=token]] [--json]
@@ -95,6 +101,7 @@ function makeService(flags: Flags): MonitorService {
 
 export async function main(argv: string[] = process.argv.slice(2)): Promise<number> {
   if (argv[0] === "bridge") return bridgeMain(argv.slice(1));
+  if (argv[0] === "workspace") return workspaceMain(argv.slice(1));
   const { cmd, flags } = parse(argv);
   if (flags.version) {
     const require = createRequire(import.meta.url);

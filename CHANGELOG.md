@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Fresh session-bound MCP capability admission and a concrete Codex app-server adapter.
+  Required tool contracts, semantic probes, runtime/config/workspace binding and deadlines
+  are checked before work; cached catalogs or retained receipts do not admit execution.
+  Includes an isolated real Codex tool-dispatch trial with no inference.
+- Shared workspace capability profiles require the same semantic capabilities across provider
+  mappings. Missing providers/tools and duplicate or extra mappings fail before work. The
+  Claude plugin coexistence contract preserves independent subscriptions and shared receipts;
+  a concrete Claude capability adapter and live interoperability trial remain pending.
+- Read-only `workspace status --config FILE [--html]` for Construct companion views.
+  Source freshness and transport/handling phases do not imply native wake or tool parity.
+
 - Native Codex runtime preview, distributed as a pinned source patch under
   `integrations/codex-native/`: a Rust/Tokio consumer, operator-registered sources, exact frontend
   ownership, revocable Core idle admission, durable receipts, and explicit recovery. Requires

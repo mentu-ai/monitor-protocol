@@ -20,7 +20,10 @@ Delivery into a live conversation is a separate adapter. Claude Code's Monitor t
 The same observations can also feed an operator-defined routine: start a script or agent job
 when work arrives, record its result, then exit. The [routine runner design](docs/use-cases/event-triggered-routines.md)
 also covers direct CLI invocation by a person, agent, or action, with prompts and context fetched
-from local or cloud sources. This second execution mode is not implemented in this checkout.
+from local or cloud sources. A bounded implementation now lives in
+[Mentu Recipes](https://github.com/mentu-ai/mentu-recipes/tree/b24d7cda2983ba279ad1f28d7e6af0266e7c5f46/integrations/continuity):
+pinned local/HTTPS inputs, a fixed execution policy, and a one-shot MP consumer that acknowledges
+after a durable report. A continuously supervised general routine service remains design work.
 
 ## What it does
 
@@ -81,6 +84,15 @@ Give each participant its own subscription. Reading or waking one participant do
 
 See [Shared terminal peers and event driven routines](docs/use-cases/shared-terminal-peers.md)
 for both execution modes, component responsibilities, lifetimes, and live-test evidence.
+
+Sessions also need verified tools. The [capability admission API](docs/tool-capabilities.md)
+checks pinned MCP tools through the actual Codex thread and requires fresh successful calls
+before admitting work. It does not inherit the Codex app's private tools or credentials.
+The [workspace status view](docs/workspace-status.md) keeps source health, transport, handling,
+tool readiness and native wake evidence separate.
+The [shared harness contract](docs/shared-harness-contract.md) aligns the Claude plugin design,
+Codex host integration and other providers around the same semantic capability requirements,
+ticket ownership, recipes and handling receipts. Concrete adapters must pass their own trials.
 
 | Client | How it receives work | What advances its cursor |
 | --- | --- | --- |

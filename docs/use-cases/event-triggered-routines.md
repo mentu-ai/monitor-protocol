@@ -9,10 +9,14 @@ A routine may be an ordinary program or a bounded agent task: validate an artifa
 report, or review a ticket and publish findings. Programmatic invocation uses a CLI process;
 it does not require someone to type into a visible terminal window.
 
-**Status: integration design.** The protocol's subscriptions, manual acknowledgement, and
-leases exist. The native Codex session monitor and the local human-operated peer launcher
-also exist. The general routine CLI, cloud input resolvers, and automatic event supervisor
-are proposed here; they are not implemented CLI features.
+**Status: broader design with a bounded implementation.** The protocol's subscriptions,
+manual acknowledgement, leases and native Codex preview exist. As of 2026-10-10,
+[Mentu Recipes PR 12](https://github.com/mentu-ai/mentu-recipes/pull/12) implements a fixed
+private dispatch policy, pinned local/HTTPS inputs, a durable run journal, an idempotent
+reporter contract, and a one-shot MP consumer. It has been exercised with real read-only
+Codex execution. General named Mentu/MCP resolvers, authenticated multi-user invocation
+and an automatic routine supervisor remain design work. That bounded execution test does
+not establish idle wake or app tool parity.
 
 See [Shared terminal peers and event driven routines](shared-terminal-peers.md) for the
 relationship to delivery into an already open conversation.

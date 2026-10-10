@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "observed_at": "2026-10-10T01:27:36.438Z",
+  "codex_executable_sha256": "74c6a6d263f40d65f99c27a815275f5b4ed0bcc2baecc396b4cf3255498bdfc0",
+  "checked_source_sha256": {
+    "src/session/capabilities.ts": "8ca750f01c73846dadd2a38df43a6fce8be323c16113d90f6d2d7d5d6f3afbb6",
+    "src/session/workspace-capabilities.ts": "75248ccdbb83048e83db93e6bdc7f6b2449778ef8db8bac8c4abd3377a563c08",
+    "src/workspace.ts": "54ec8b5a9cb6e211917f62c55fa7addc9b64d742ea8574ffb9669e06b6ada258",
+    "examples/codex-capability-trial.mjs": "bd9662a927a37f31db4b565b3ae73cf305d537a338a417673d617b3c0f1be0f0",
+    "examples/codex-capability-fixture.mjs": "714c2003cc86be7ad56eef2eadc8e7b3c651078bbd219ff74bdd91c017611416"
+  },
+  "tests": {
+    "node_passed": 138,
+    "node_failed": 0,
+    "conformance_passed": 34,
+    "conformance_failed": 0,
+    "release_contract": "passed"
+  },
+  "live_codex": {
+    "isolated_home": true,
+    "ephemeral_thread": true,
+    "same_thread_inventory_and_tool_call": true,
+    "semantic_result_checked": true,
+    "shared_workspace_profile_admission": true,
+    "missing_required_tool_refused": true,
+    "owned_runtime_stopped": true,
+    "model_inference_started": false,
+    "full_app_tool_parity_proven": false,
+    "native_idle_wake_proven": false
+  },
+  "limits": [
+    "Claude concrete capability adapter and live cross-provider trial pending",
+    "Current public workspace view does not promote saved receipts to tool readiness",
+    "Native shell and app-private facilities outside MCP v1",
+    "Local Construct source supervisor is not included in the public package"
+  ]
+}
