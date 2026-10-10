@@ -60,9 +60,11 @@ a participant's delivery.
 Two source gaps prevent treating the existing hooks as parity proof:
 
 - The Python capability registry describes expected per-agent abilities; it does not
-  probe the current session. Its Codex decoder leaves session/workspace/run metadata
-  at defaults, while its encoder emits no context for `inject`. These need host-bound
-  normalization and behavior tests before claiming equivalent context delivery.
+  probe the current session. The audit found that its Codex decoder discarded
+  session/workspace/run metadata. Local Mentu source fix `163905c` preserves explicit
+  hook-envelope fields and tested context fallbacks; 46 pure adapter/ABI tests passed.
+  Installed hook delivery remains unverified, and the encoder still emits no context
+  for `inject`. This source fix does not establish equivalent context delivery.
 - The Claude guard's source distinguishes caught destructive-check failures from a
   host-budget timeout that can remove the hook. Required admission must fail closed
   at the host boundary; an optional courier or UI hook cannot provide that guarantee.
