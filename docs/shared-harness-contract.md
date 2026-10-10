@@ -95,6 +95,29 @@ configuration change invalidates the relevant readiness. Required tool failures
 refuse the task; an optional capability may be omitted only when the shared profile
 explicitly permits it. A static declaration is not a live receipt.
 
+## Claude host metadata required before admission
+
+The reviewed Claude Mods declarations expose `$.tool.call`, which follows the model's
+normal tool event and permission path. Prefer that path for probes. `$.mcp.call`
+uses the host connection but skips permission prompts, so it does not establish the
+same permission behavior. [Official declarations](https://github.com/anthropics/claude-code/blob/main/mods/types/claude-code.d.ts).
+
+The reviewed `ToolInfo` inventory contains names, descriptions, and MCP identity,
+without the full tool schema needed by this library's contract digest. Session ID
+and working directory are available, but a complete runtime incarnation and effective
+configuration binding were not established. Local declarations identify 2.1.271;
+the official declarations reviewed identify 2.1.277. The installed 2.1.296 runtime
+was not loaded or probed for this integration. Generate and inspect that runtime's
+own declarations before relying on an interface. [Mods reference](https://code.claude.com/docs/en/plugins/mods/reference).
+
+The owning host must supply full effective Tool objects, catalog revision, an
+authoritative session/runtime/configuration/workspace binding, and lifecycle
+invalidation covering probes and admitted work. Until then, refuse strict admission.
+Do not fill missing schemas from the expected profile, use a second MCP client, or
+convert static plugin declarations into readiness evidence. The generic adapter
+interface already supports this future host connection; another wrapper cannot
+supply missing host facts.
+
 ## Delivery, hooks, and receipts
 
 ```text
