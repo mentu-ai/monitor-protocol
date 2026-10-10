@@ -217,7 +217,10 @@ does not establish a supervised or healthy long-running worker by itself.
 Host events are notifications, not user messages carrying new authorization. Reuse the journal,
 deduplication, and receipt-before-ack path; do not implement an adapter-specific auto-commit.
 Document unsupported platforms and capabilities. If the host cannot meet the live-session
-contract, expose the existing attended pull workflow instead:
+contract, expose the existing attended pull workflow instead. Claude Code is such a host:
+`bindClaudeSession` proves which attended session a tool runs in, but no documented command
+queues into a running session, so `bridge run --adapter claude` is refused and the session
+reads its own subscription:
 
 ```bash
 node dist/index.js watch --base http://localhost:8130 \

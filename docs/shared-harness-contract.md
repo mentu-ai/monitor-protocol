@@ -87,7 +87,11 @@ Codex admission uses the owning thread's `mcpServerStatus/list` and
 `mcpServer/tool/call`. A Claude adapter must produce the same receipt contract through
 its actual session tool path; calling a separate MCP client is insufficient. The
 current library provides the provider-neutral interface and the concrete Codex
-adapter. It does not yet provide that concrete Claude adapter. Native shell tools,
+adapter. For Claude Code it provides two narrower pieces: `bindClaudeSession`, which
+binds an attended session by process ancestry, start time, terminal and running image,
+and `observeClaudeProbe`, which finds in the session's own transcript a pinned probe the
+bound session called after a fresh nonce. The observation is not a receipt, so it never
+admits work; the concrete Claude capability adapter still waits for the host facts below. Native shell tools,
 model-selected tool calls, and application-private facilities require separate probes.
 [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server).
 

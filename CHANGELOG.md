@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Owning-host session bindings. `bindClaudeSession` binds an attended Claude Code session by
+  process ancestry, start time, terminal and running image; its session id is declared (a hook
+  payload's `session_id`), and undocumented environment values only cross-check. Claude is
+  pull-only: `bridge run --adapter claude` is refused, because no documented command queues
+  into a running session. `bindCodexAppServerSession` binds a tool process hosted by a Codex
+  App Server through its ancestor, the socket that process holds, and `thread/read` alone;
+  attendance stays `unverified`, because no documented field reports an attending client.
+- `observeClaudeProbe` reads a Claude Code session transcript for a pinned probe that the
+  bound session itself called after a fresh nonce. It returns an observation, never a
+  capability receipt; strict Claude admission stays refused until the host exposes full
+  tool schemas and an authoritative runtime/configuration binding.
+- Workspace status reports `capabilityReadiness: "verified"` only when a retained receipt
+  passes integrity, profile, binding and freshness checks against a binding the host obtained
+  live in the same call; otherwise `unverified`, `binding-unavailable`, `binding-mismatch`,
+  `expired` or `evidence-invalid`. `capabilityExpiresAt` shows a verified receipt's expiry.
 - Optional handling expectations in workspace status expose overdue delivery
   receipts independently of worker heartbeats. Deadlines use original delivery
   timestamps; the passive view never acknowledges, retries, or schedules work.

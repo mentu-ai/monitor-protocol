@@ -1,16 +1,8 @@
 /** Deliver to an already human-opened Codex terminal. This adapter never starts a session. */
-import { execFile } from "node:child_process";
-import { constants } from "node:fs";
-import { access, readlink, realpath, stat } from "node:fs/promises";
 import { basename, isAbsolute } from "node:path";
+import { canonicalUuid, inspectProcess, processRuntime, terminal, type ProcessRuntime, type SessionProcess } from "./process.js";
 
-export interface CodexProcess {
-  pid: number;
-  parent: number;
-  started: string;
-  tty: string;
-  command: string;
-}
+export type CodexProcess = SessionProcess;
 
 /** Store privately with the consumer's state. This is a binding, not a credential. */
 export interface CodexBinding {
@@ -23,14 +15,8 @@ export interface CodexBinding {
 }
 
 /** Injectable OS boundary for tests and embedders. Production uses execFile, never a shell. */
-export interface CodexRuntime {
-  platform: NodeJS.Platform;
-  pid: number;
+export interface CodexRuntime extends ProcessRuntime {
   threadId: string | undefined;
-  run: (file: string, args: readonly string[]) => Promise<string>;
-  realpath: (path: string) => Promise<string>;
-  readlink: (path: string) => Promise<string>;
-  checkExecutable: (path: string) => Promise<void>;
 }
 
 export class CodexSessionError extends Error {
@@ -49,43 +35,8 @@ export class CodexQueueRetryError extends CodexSessionError {
   }
 }
 
-const canonicalUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-const terminal = (tty: string) => !!tty && !["?", "??", "-", "none"].includes(tty);
-
 function runtime(overrides: Partial<CodexRuntime>): CodexRuntime {
-  return {
-    platform: process.platform,
-    pid: process.pid,
-    threadId: process.env.CODEX_THREAD_ID,
-    run: (file, args) => new Promise((resolve, reject) => {
-      execFile(file, [...args], {
-        encoding: "utf8", timeout: 5_000, maxBuffer: 64 * 1024,
-        env: { ...process.env, LC_ALL: "C", LANG: "C" },
-      }, (error, stdout) => error ? reject(error) : resolve(stdout));
-    }),
-    realpath,
-    readlink,
-    checkExecutable: async (path) => {
-      if (!(await stat(path)).isFile()) throw new Error("not a file");
-      await access(path, constants.X_OK);
-    },
-    ...overrides,
-  };
-}
-
-async function inspectProcess(pid: number, os: CodexRuntime): Promise<CodexProcess | null> {
-  if (!Number.isSafeInteger(pid) || pid <= 1) return null;
-  try {
-    // lstart plus parent and terminal protects against ordinary PID reuse and detachment.
-    // Keep the final field intact: the native installation path can contain spaces.
-    const output = await os.run("/bin/ps", ["-ww", "-o", "pid=,ppid=,lstart=,tty=,comm=", "-p", String(pid)]);
-    const match = output.trim().match(/^(\d+)\s+(\d+)\s+(\S+\s+\S+\s+\d+\s+\S+\s+\d+)\s+(\S+)\s+(.+)$/);
-    if (!match || Number(match[1]) !== pid) return null;
-    return {
-      pid, parent: Number(match[2]), started: match[3].replace(/\s+/g, " "),
-      tty: match[4], command: match[5],
-    };
-  } catch { return null; }
+  return { ...processRuntime(), threadId: process.env.CODEX_THREAD_ID, ...overrides };
 }
 
 async function processExecutable(row: CodexProcess, os: CodexRuntime): Promise<string> {

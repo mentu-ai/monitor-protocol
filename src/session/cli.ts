@@ -48,6 +48,7 @@ export async function bridgeMain(argv: string[]): Promise<number> {
   const required = (key: string) => { if (!f[key]) throw new Error(`bridge ${action} needs --${key}`); return f[key]; };
   const path = expandHome(required("state"));
   if (action === "run") {
+    if (f.adapter === "claude") throw new Error("Claude Code is pull-only: no documented command queues into a running session; read the subscription with watch from the session itself");
     if (f.adapter && f.adapter !== "codex") throw new Error("this release supplies the codex adapter; other harnesses use watch/pull or implement SessionAdapter");
     const poll = f["poll-ms"] === undefined ? 1000 : Number(f["poll-ms"]);
     if (!Number.isSafeInteger(poll) || poll < 100 || poll > 30_000) throw new Error("--poll-ms must be an integer from 100 to 30000");

@@ -32,7 +32,7 @@ Serve it only within the intended workspace access boundary; do not publish loca
 | Transport | Status of a configured bridge worker, or explicitly unconfigured/unavailable |
 | Delivery phase | Pending, queued, handled, or no pending delivery in that journal |
 | Handling expectation | Age of the original delivery, optional deadline, and whether a matching handling receipt exists |
-| Capability readiness | `unverified` in this v1 projection; no runtime-bound provider is wired to the view yet |
+| Capability readiness | `verified` only when a retained receipt passes integrity, profile, binding and freshness checks now, against a binding the host obtained live in the same call (`liveBinding`); otherwise `unverified`, `binding-unavailable`, `binding-mismatch`, `expired` or `evidence-invalid` |
 | Native wake | `unverified`; a running source or queue cannot establish this |
 
 An actor appears because the operator configured it. Appearing in the view does not mean
@@ -105,3 +105,15 @@ the required MCP tool, calls it through that thread, checks the result, admits o
 refuses a missing required tool, and stops its owned runtime. It needs no model call or copied
 login. The retained `result.json` proves dispatch capability at that time; it does not prove
 model tool selection, desktop permissions, idle wake, or full Codex app equivalence.
+
+## Tool readiness from a live binding
+
+A participant may name `capability: { profileFile, receiptFile }`, both absolute paths: the
+provider-resolved profile and the receipt that preflight issued against it. The command line
+cannot bind another session, so it always reports such a participant as `unverified`. A host
+that embeds `workspaceStatus(config, now, { liveBinding })` supplies a function that obtains
+the participant's binding live, in that call, or returns null. Only then can the view report
+`verified`, with `capabilityExpiresAt`. A saved receipt alone, a binding from an earlier call,
+or a Claude probe observation never makes a participant ready, and tool readiness never
+implies native wake.
+

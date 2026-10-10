@@ -167,6 +167,13 @@ function pointer(value: unknown, path: string): { found: boolean; value?: unknow
   }
   return { found: true, value: cursor };
 }
+/** Every operator assertion holds on an MCP tool result: the same check for every host. */
+export function capabilityResultMatches(result: unknown, capability: RequiredCapability): boolean {
+  return capability.probe.assertions.every(assertion => {
+    const actual = pointer(result, assertion.path);
+    return actual.found && capabilityDigest(actual.value) === capabilityDigest(assertion.equals);
+  });
+}
 async function bounded<T>(timeoutMs: number, run: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   const deadline = performance.now() + timeoutMs;
@@ -229,12 +236,7 @@ export async function preflightCapabilities(
           (Object.hasOwn(result, "isError") && result.isError !== false)) {
         fail("PROBE_FAILED", `Probe returned an error or malformed result: ${c.id}`);
       }
-      for (const assertion of c.probe.assertions) {
-        const actual = pointer(result, assertion.path);
-        if (!actual.found || capabilityDigest(actual.value) !== capabilityDigest(assertion.equals)) {
-          fail("PROBE_FAILED", `Probe semantic assertion failed: ${c.id}`);
-        }
-      }
+      if (!capabilityResultMatches(result, c)) fail("PROBE_FAILED", `Probe semantic assertion failed: ${c.id}`);
       checks.push({ capability: c.id, server: c.server, tool: c.tool, toolSha256: c.toolSha256, resultSha256: capabilityDigest(result) });
     }
     await sameBinding(adapter, b, signal);

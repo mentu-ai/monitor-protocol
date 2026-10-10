@@ -2,6 +2,8 @@
 import { readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { BridgeJournal, type Delivery } from "./session/bridge.js";
+import { assertCapabilityReceipt, capabilityDigest, CapabilityAdmissionError,
+  type CapabilityBinding, type CapabilityProfile, type CapabilityReceipt } from "./session/capabilities.js";
 
 export interface WorkspaceConfig {
   version: 1;
@@ -10,8 +12,18 @@ export interface WorkspaceConfig {
   sourceHealthFile: string;
   staleAfterMs: number;
   participants: Array<{ actor: string; mode: "attended-session" | "bounded-routine";
-    bridgeState?: string; handlingWithinMs?: number }>;
+    bridgeState?: string; handlingWithinMs?: number;
+    /** A provider-resolved profile and the receipt preflight issued against it (absolute paths). */
+    capability?: { profileFile: string; receiptFile: string } }>;
 }
+
+/** Host hook: the participant's binding, obtained live in this call; null when it cannot be. */
+export interface WorkspaceStatusOptions {
+  liveBinding?: (actor: string) => Promise<CapabilityBinding | null>;
+}
+
+export type CapabilityReadiness = "unverified" | "verified" | "expired" | "binding-mismatch" |
+  "binding-unavailable" | "evidence-invalid";
 
 export interface WorkspaceHandling {
   state: "unobserved" | "no-pending-delivery" | "awaiting-handling" | "handling-overdue" |
@@ -43,7 +55,9 @@ export function validateWorkspaceConfig(input: unknown): asserts input is Worksp
         !["attended-session", "bounded-routine"].includes(String(p.mode)) ||
         (p.bridgeState !== undefined && (!nonempty(p.bridgeState) || !isAbsolute(p.bridgeState))) ||
         (p.handlingWithinMs !== undefined && (!Number.isSafeInteger(p.handlingWithinMs) ||
-          Number(p.handlingWithinMs) < 1000 || Number(p.handlingWithinMs) > 86_400_000)))
+          Number(p.handlingWithinMs) < 1000 || Number(p.handlingWithinMs) > 86_400_000)) ||
+        (p.capability !== undefined && (!object(p.capability) ||
+          ![p.capability.profileFile, p.capability.receiptFile].every(f => nonempty(f) && isAbsolute(f as string)))))
       throw new Error("invalid or duplicate workspace participant");
     seen.add(p.actor);
   }
@@ -93,12 +107,41 @@ function handlingStatus(journal: BridgeJournal, item: Delivery | null, now: numb
   } catch { return emptyHandling("evidence-invalid"); }
 }
 
-export async function workspaceStatus(input: unknown, now = Date.now()) {
+/**
+ * Verified only from a retained receipt that passes integrity, profile, binding and freshness
+ * checks now, against a binding the host obtained live in this same call. A saved receipt
+ * alone, or a binding from an earlier call, never makes a participant ready.
+ */
+async function capabilityStatus(p: WorkspaceConfig["participants"][number], now: number,
+  options: WorkspaceStatusOptions): Promise<{ readiness: CapabilityReadiness; expiresAt: string | null }> {
+  const unverified = { readiness: "unverified" as const, expiresAt: null };
+  if (!p.capability || !options.liveBinding) return unverified;
+  let profile: CapabilityProfile, receipt: CapabilityReceipt;
+  try {
+    profile = JSON.parse(readFileSync(p.capability.profileFile, "utf8"));
+    receipt = JSON.parse(readFileSync(p.capability.receiptFile, "utf8"));
+  } catch { return { readiness: "evidence-invalid", expiresAt: null }; }
+  let live: CapabilityBinding | null;
+  try { live = await options.liveBinding(p.actor); } catch { live = null; }
+  if (!live) return { readiness: "binding-unavailable", expiresAt: null };
+  try {
+    if (!object(receipt) || capabilityDigest(receipt.binding) !== capabilityDigest(live))
+      return { readiness: "binding-mismatch", expiresAt: null };
+    assertCapabilityReceipt(receipt, profile, live, now);
+    return { readiness: "verified", expiresAt: receipt.expiresAt };
+  } catch (error) {
+    return { readiness: error instanceof CapabilityAdmissionError && error.code === "EXPIRED_RECEIPT" ? "expired" : "evidence-invalid",
+      expiresAt: null };
+  }
+}
+
+export async function workspaceStatus(input: unknown, now = Date.now(), options: WorkspaceStatusOptions = {}) {
   validateWorkspaceConfig(input);
   const participants = await Promise.all(input.participants.map(async p => {
+    const capability = await capabilityStatus(p, now, options);
     const base = { actor: p.actor, mode: p.mode, transport: "unconfigured", worker: "unknown",
-      delivery: null as string | null, phase: "unknown", capabilityReadiness: "unverified",
-      nativeWake: "unverified", handling: emptyHandling("unobserved") };
+      delivery: null as string | null, phase: "unknown", capabilityReadiness: capability.readiness as CapabilityReadiness,
+      capabilityExpiresAt: capability.expiresAt, nativeWake: "unverified", handling: emptyHandling("unobserved") };
     if (!p.bridgeState) return base;
     try {
       const journal = new BridgeJournal(p.bridgeState);
@@ -121,7 +164,7 @@ export async function workspaceStatus(input: unknown, now = Date.now()) {
   }));
   return { version: 1, workspace: input.workspace, construct: { id: input.construct.id, url: input.construct.url },
     observedAt: new Date(now).toISOString(), source: sourceStatus(input.sourceHealthFile, now, input.staleAfterMs),
-    participants, semantics: "Read-only observation. Enrolment, queued delivery and a running process do not establish tool readiness, handling or native wake." };
+    participants, semantics: "Read-only observation. Enrolment, queued delivery and a running process do not establish tool readiness, handling or native wake. Tool readiness is verified only from a fresh receipt checked against a binding obtained live in the same observation." };
 }
 
 const escape = (v: unknown) => String(v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));

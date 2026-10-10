@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { workspaceStatus, renderWorkspaceStatus, type WorkspaceConfig } from "../workspace.js";
 import { BridgeJournal } from "../session/bridge.js";
+import { capabilityDigest, preflightCapabilities, type CapabilityAdapter, type CapabilityBinding, type CapabilityProfile } from "../session/capabilities.js";
 import type { Observation } from "../types.js";
 
 const now = Date.parse("2026-10-10T00:00:00Z");
@@ -236,4 +237,59 @@ test("operator handling deadlines are bounded safe integers", async t => {
     assert.equal(status.participants[0].handling.state, "unobserved");
     assert.equal(status.participants[0].handling.dueAt, null);
   }
+});
+
+async function readinessFixture(t: TestContext) {
+  const f = fixture(t); f.write(f.health);
+  const tool = { name: "fixture_read", inputSchema: { type: "object" } };
+  const binding: CapabilityBinding = { provider: "codex", sessionId: "owned-thread", runtimeId: "runtime-1",
+    configSha256: capabilityDigest({ model: "fixture" }), workspace: "/fixture/workspace" };
+  const profile: CapabilityProfile = { version: 1, id: "fixture-v1", ttlMs: 60_000, timeoutMs: 500, required: [
+    { id: "fixture.read", server: "fixture", tool: tool.name, toolSha256: capabilityDigest(tool),
+      probe: { kind: "read-only", arguments: {}, assertions: [{ path: "/content/0/text", equals: "ok" }] } }] };
+  const adapter: CapabilityAdapter = {
+    getBinding: async () => structuredClone(binding),
+    inventory: async () => [{ server: "fixture", tool }],
+    probe: async () => ({ content: [{ type: "text", text: "ok" }] }),
+  };
+  const receipt = await preflightCapabilities(profile, binding, adapter);
+  const capability = { profileFile: join(f.dir, "profile.json"), receiptFile: join(f.dir, "receipt.json") };
+  writeFileSync(capability.profileFile, JSON.stringify(profile));
+  writeFileSync(capability.receiptFile, JSON.stringify(receipt));
+  f.config.participants[0].capability = capability;
+  const issued = Date.parse(receipt.issuedAt);
+  return { ...f, binding, receipt, capability, issued };
+}
+
+test("tool readiness is verified only from a fresh receipt against a binding obtained live in the same call", async t => {
+  const r = await readinessFixture(t);
+  const status = await workspaceStatus(r.config, r.issued + 1000, { liveBinding: async actor => {
+    assert.equal(actor, "agent:peer@demo"); return structuredClone(r.binding);
+  } });
+  assert.equal(status.participants[0].capabilityReadiness, "verified");
+  assert.equal(status.participants[0].capabilityExpiresAt, r.receipt.expiresAt);
+  assert.equal(status.participants[0].nativeWake, "unverified", "tool readiness never implies native wake");
+  assert.ok(!JSON.stringify(status).includes("owned-thread"), "the view never copies the binding");
+});
+
+test("a saved receipt alone, an absent or changed binding, expiry, or tampering is never readiness", async t => {
+  const r = await readinessFixture(t);
+  const at = r.issued + 1000;
+  const readiness = async (options: Parameters<typeof workspaceStatus>[2], now = at) =>
+    (await workspaceStatus(r.config, now, options)).participants[0].capabilityReadiness;
+  assert.equal(await readiness({}), "unverified");
+  assert.equal(await readiness({ liveBinding: async () => null }), "binding-unavailable");
+  assert.equal(await readiness({ liveBinding: async () => { throw new Error("host unavailable"); } }), "binding-unavailable");
+  assert.equal(await readiness({ liveBinding: async () => ({ ...r.binding, runtimeId: "runtime-2" }) }), "binding-mismatch");
+  assert.equal(await readiness({ liveBinding: async () => r.binding }, r.issued + 60_000), "expired");
+  writeFileSync(r.capability.receiptFile, JSON.stringify({ ...r.receipt, nonce: "0".repeat(64) }));
+  assert.equal(await readiness({ liveBinding: async () => r.binding }), "evidence-invalid");
+  rmSync(r.capability.receiptFile);
+  assert.equal(await readiness({ liveBinding: async () => r.binding }), "evidence-invalid");
+});
+
+test("capability evidence paths must be absolute", async t => {
+  const f = fixture(t);
+  f.config.participants[0].capability = { profileFile: "profile.json", receiptFile: join(f.dir, "receipt.json") };
+  await assert.rejects(workspaceStatus(f.config, now), /invalid or duplicate workspace participant/);
 });
