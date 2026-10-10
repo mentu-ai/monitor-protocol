@@ -90,6 +90,8 @@ checks pinned MCP tools through the actual Codex thread and requires fresh succe
 before admitting work. It does not inherit the Codex app's private tools or credentials.
 The [workspace status view](docs/workspace-status.md) keeps source health, transport, handling,
 tool readiness and native wake evidence separate.
+An optional handling expectation flags overdue delivery receipts even while their
+worker stays alive; it never acknowledges or launches work.
 The [shared harness contract](docs/shared-harness-contract.md) aligns the Claude plugin design,
 Codex host integration and other providers around the same semantic capability requirements,
 ticket ownership, recipes and handling receipts. Concrete adapters must pass their own trials.

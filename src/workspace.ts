@@ -1,7 +1,7 @@
 /** Read-only status projection for a shared workspace and its Construct views. */
 import { readFileSync } from "node:fs";
 import { isAbsolute } from "node:path";
-import { BridgeJournal } from "./session/bridge.js";
+import { BridgeJournal, type Delivery } from "./session/bridge.js";
 
 export interface WorkspaceConfig {
   version: 1;
@@ -10,7 +10,16 @@ export interface WorkspaceConfig {
   sourceHealthFile: string;
   staleAfterMs: number;
   participants: Array<{ actor: string; mode: "attended-session" | "bounded-routine";
-    bridgeState?: string }>;
+    bridgeState?: string; handlingWithinMs?: number }>;
+}
+
+export interface WorkspaceHandling {
+  state: "unobserved" | "no-pending-delivery" | "awaiting-handling" | "handling-overdue" |
+    "handled-awaiting-ack" | "evidence-invalid";
+  createdAt: string | null;
+  ageMs: number | null;
+  dueAt: string | null;
+  handledAt: string | null;
 }
 
 const object = (v: unknown): v is Record<string, unknown> => !!v && typeof v === "object" && !Array.isArray(v);
@@ -32,7 +41,9 @@ export function validateWorkspaceConfig(input: unknown): asserts input is Worksp
   for (const p of input.participants) {
     if (!object(p) || !nonempty(p.actor) || seen.has(p.actor) ||
         !["attended-session", "bounded-routine"].includes(String(p.mode)) ||
-        (p.bridgeState !== undefined && (!nonempty(p.bridgeState) || !isAbsolute(p.bridgeState))))
+        (p.bridgeState !== undefined && (!nonempty(p.bridgeState) || !isAbsolute(p.bridgeState))) ||
+        (p.handlingWithinMs !== undefined && (!Number.isSafeInteger(p.handlingWithinMs) ||
+          Number(p.handlingWithinMs) < 1000 || Number(p.handlingWithinMs) > 86_400_000)))
       throw new Error("invalid or duplicate workspace participant");
     seen.add(p.actor);
   }
@@ -56,22 +67,53 @@ function sourceStatus(path: string, now: number, ttl: number) {
   } catch { return unavailable; }
 }
 
+const emptyHandling = (state: WorkspaceHandling["state"]): WorkspaceHandling => ({
+  state, createdAt: null, ageMs: null, dueAt: null, handledAt: null,
+});
+// BridgeJournal writes canonical ISO timestamps. Reject malformed or ambiguous
+// evidence rather than copying arbitrary strings into the public projection.
+function journalTime(value: unknown): number {
+  const parsed = time(value);
+  return Number.isFinite(parsed) && new Date(parsed).toISOString() === value ? parsed : NaN;
+}
+function handlingStatus(journal: BridgeJournal, item: Delivery | null, now: number, within?: number): WorkspaceHandling {
+  if (!item) return emptyHandling("no-pending-delivery");
+  try {
+    const created = journalTime(item.created);
+    if (!Number.isFinite(created) || created > now) return emptyHandling("evidence-invalid");
+    const receipt = journal.receipt(item.id);
+    const handled = receipt ? journalTime(receipt.handled) : null;
+    if (handled !== null && (!Number.isFinite(handled) || handled < created || handled > now))
+      return emptyHandling("evidence-invalid");
+    const ageMs = now - created;
+    return { state: receipt ? "handled-awaiting-ack" : within !== undefined && ageMs >= within ? "handling-overdue" : "awaiting-handling",
+      createdAt: new Date(created).toISOString(), ageMs,
+      dueAt: within === undefined ? null : new Date(created + within).toISOString(),
+      handledAt: handled === null ? null : new Date(handled).toISOString() };
+  } catch { return emptyHandling("evidence-invalid"); }
+}
+
 export async function workspaceStatus(input: unknown, now = Date.now()) {
   validateWorkspaceConfig(input);
   const participants = await Promise.all(input.participants.map(async p => {
     const base = { actor: p.actor, mode: p.mode, transport: "unconfigured", worker: "unknown",
       delivery: null as string | null, phase: "unknown", capabilityReadiness: "unverified",
-      nativeWake: "unverified" };
+      nativeWake: "unverified", handling: emptyHandling("unobserved") };
     if (!p.bridgeState) return base;
     try {
       const journal = new BridgeJournal(p.bridgeState);
-      const health = await journal.workerStatus(now);
+      // Worker diagnostics are independent of durable delivery/handling evidence.
+      // An unreadable worker record must not conceal a readable overdue delivery.
+      const health = await journal.workerStatus(now).catch(() => null);
       const item = journal.pending();
+      const handling = handlingStatus(journal, item, now, p.handlingWithinMs);
       // A running queue worker is transport health, not runtime tool readiness or native wake.
-      return { ...base, transport: journal.stopped() ? "stopped" : health.healthy ? "running" : "unavailable",
-        worker: health.state, delivery: item?.id ?? null,
-        phase: item ? journal.receipt(item.id) ? "handled" : journal.queued(item.id) ? "queued" : "pending" : "idle" };
-    } catch { return { ...base, transport: "unavailable" }; }
+      return { ...base, transport: journal.stopped() ? "stopped" : health?.healthy ? "running" : "unavailable",
+        worker: health?.state ?? "unknown", delivery: item?.id ?? null, handling,
+        phase: handling.state === "evidence-invalid" ? "unknown" :
+          item ? handling.state === "handled-awaiting-ack" ? "handled" : journal.queued(item.id) ? "queued" : "pending" : "idle" };
+    } catch (error) { return { ...base, transport: "unavailable", handling:
+      emptyHandling((error as NodeJS.ErrnoException).code === "ENOENT" ? "unobserved" : "evidence-invalid") }; }
   }));
   return { version: 1, workspace: input.workspace, construct: { id: input.construct.id, url: input.construct.url },
     observedAt: new Date(now).toISOString(), source: sourceStatus(input.sourceHealthFile, now, input.staleAfterMs),
@@ -80,12 +122,12 @@ export async function workspaceStatus(input: unknown, now = Date.now()) {
 
 const escape = (v: unknown) => String(v).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 export function renderWorkspaceStatus(status: Awaited<ReturnType<typeof workspaceStatus>>): string {
-  const rows = status.participants.map(p => `<tr><td>${escape(p.actor)}</td><td>${escape(p.mode)}</td><td>${escape(p.transport)}</td><td>${escape(p.phase)}</td><td>${escape(p.capabilityReadiness)}</td><td>${escape(p.nativeWake)}</td></tr>`).join("\n");
+  const rows = status.participants.map(p => `<tr><td>${escape(p.actor)}</td><td>${escape(p.mode)}</td><td>${escape(p.transport)}</td><td>${escape(p.phase)}</td><td>${escape(p.handling.state)}<br><small>Created: ${escape(p.handling.createdAt ?? "unknown")}. Age: ${escape(p.handling.ageMs === null ? "unknown" : `${p.handling.ageMs} ms`)}. Due: ${escape(p.handling.dueAt ?? "not observed")}. Handled: ${escape(p.handling.handledAt ?? "not observed")}.</small></td><td>${escape(p.capabilityReadiness)}</td><td>${escape(p.nativeWake)}</td></tr>`).join("\n");
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escape(status.workspace)} · continuity</title>
 <style>body{font:16px system-ui;background:#f6f5f0;color:#18251e;max-width:1100px;margin:48px auto;padding:0 24px}h1{font-size:32px}table{border-collapse:collapse;width:100%;background:white}th,td{text-align:left;padding:14px;border-bottom:1px solid #ddd}small,p{line-height:1.6}.card{background:white;padding:24px;margin:24px 0;border:1px solid #deded5;border-radius:12px}a{color:#20643d}.table{overflow:auto}</style>
 <p>SHARED WORKSPACE / CONTINUITY</p><h1>${escape(status.workspace)}</h1><p><a href="${escape(status.construct.url)}">Open Construct ${escape(status.construct.id)}</a></p>
 <div class="card"><h2>Ticket source: ${escape(status.source.state)}</h2><p>Ready: ${status.source.ready ? "yes" : "no"}. Evidence freshness: ${status.source.fresh ? "fresh" : "stale or unknown"}.</p><small>Last successful read: ${escape(status.source.lastSuccess ?? "unknown")}</small></div>
-<div class="table"><table><thead><tr><th>Participant</th><th>Mode</th><th>Transport</th><th>Delivery</th><th>Tools</th><th>Native wake</th></tr></thead><tbody>${rows}</tbody></table></div>
+<div class="table"><table><thead><tr><th>Participant</th><th>Mode</th><th>Transport</th><th>Delivery</th><th>Handling</th><th>Tools</th><th>Native wake</th></tr></thead><tbody>${rows}</tbody></table></div>
 <p>${escape(status.semantics)}</p><small>Snapshot: ${escape(status.observedAt)}. This page does not refresh itself.</small></html>\n`;
 }
 

@@ -161,6 +161,39 @@ authorized by its launch policy; it does not pretend to be a still-attended sess
 The [workspace status view](workspace-status.md) keeps transport health, capability
 readiness, and native wake as separate observations.
 
+## Operational continuity across shared desks
+
+Use one authoritative scheduler for each routine occurrence. A workspace view or a
+second provider may mirror its state, but reading an inbox or rendering that view
+must not create another occurrence. Carry the existing occurrence key, recipe digest,
+canonical work reference, and retained outcome across interfaces. Reconcile a missing
+mirror against those records before creating new work. A dashboard can be reachable
+while its routine registry or execution history is out of date.
+
+Separate the executing participant from the observer of missed expectations. The
+workspace projection can now measure the time from the original durable delivery to
+its handling receipt, using the operator's optional `handlingWithinMs`. This flags
+deliveries whose matching receipt is overdue even while heartbeats continue. It does
+not infer a missed deadline when the operator has specified none. A receipt means
+the participant recorded a disposition; the ticket system still owns verification
+and acceptance.
+
+For bounded routines, retain the real child exit status and complete evidence before
+presenting a shortened result. Declare omitted output. An exit code, a file's existence,
+or a structurally valid report cannot by itself establish the requested semantic
+outcome. Bind verification to the exact run, input manifest, recipe revision, and
+report revision. A changed report needs a new verification.
+
+Apply these rules at shared host boundaries so Claude hooks, Codex adapters, pull
+participants, and later providers produce comparable observations. Provider-specific
+hooks can surface the observations; they must not create a second work ledger,
+advance another participant's cursor, or turn a display refresh into an execution.
+
+Keep public status to an allowlisted envelope. Event bodies, local paths, credentials,
+private evidence, and provider transcripts stay in their authorized stores. A status
+mirror needs identities, timestamps, states, and permitted references; access to a
+shared desk does not grant access to every underlying artifact.
+
 The interoperability acceptance test is bidirectional: the operator leaves one
 session idle; the other creates the authorized test ticket; the receiver wakes,
 reads the canonical ticket through its own verified tools, reports evidence, and

@@ -13,7 +13,7 @@ subscription, or consumer and makes no acknowledgement. A host can call the expo
   "sourceHealthFile": "/private/operator-state/source-health.json",
   "staleAfterMs": 30000,
   "participants": [
-    { "actor": "agent:codex@engineering", "mode": "attended-session" },
+    { "actor": "agent:codex@engineering", "mode": "attended-session", "handlingWithinMs": 300000 },
     { "actor": "agent:claude@engineering", "mode": "attended-session" }
   ]
 }
@@ -31,6 +31,7 @@ Serve it only within the intended workspace access boundary; do not publish loca
 | Source state | The source worker's last report, plus independent heartbeat/success freshness checks |
 | Transport | Status of a configured bridge worker, or explicitly unconfigured/unavailable |
 | Delivery phase | Pending, queued, handled, or no pending delivery in that journal |
+| Handling expectation | Age of the original delivery, optional deadline, and whether a matching handling receipt exists |
 | Capability readiness | `unverified` in this v1 projection; no runtime-bound provider is wired to the view yet |
 | Native wake | `unverified`; a running source or queue cannot establish this |
 
@@ -38,6 +39,40 @@ An actor appears because the operator configured it. Appearing in the view does 
 the actor has an active monitor. A stale source can still report its last state as healthy;
 `ready` becomes false as soon as either heartbeat or successful read is outside the allowed age.
 The source file is local host evidence, not a signed process attestation.
+
+## An independent check for missed handling
+
+Set `handlingWithinMs` on a participant to state how long the operator expects a
+delivery to wait for a handling receipt. Values range from 1,000 to 86,400,000 ms.
+The interval starts at the journal's original `Delivery.created`. Enqueue, repeated
+delivery, worker restart, and refreshed heartbeats do not reset it. Omit the field
+when the operator has not set an expectation; the view must not invent a deadline.
+
+The `handling` projection separates these observations:
+
+| State | What the observer can establish |
+|---|---|
+| `unobserved` | The journal is absent or unconfigured; no conclusion about pending work |
+| `no-pending-delivery` | This journal has no pending delivery; upstream work may still exist |
+| `awaiting-handling` | A delivery has no handling receipt; no configured deadline has passed |
+| `handling-overdue` | The configured deadline has been reached without a matching handling receipt |
+| `handled-awaiting-ack` | The journal has a matching receipt; the consumer still owns acknowledgement |
+| `evidence-invalid` | Journal or timing evidence is unreadable, malformed, or inconsistent |
+
+The observer reads the journal without consuming events or changing its bytes. It
+does not acknowledge, relaunch, reassign, or retry work. A healthy worker can have
+overdue handling. A receipt ends the handling alert but does not establish that a
+ticket was verified, accepted, or closed. Source freshness, transport health, tool
+readiness, and native wake retain their separate meanings.
+
+Run this check from a host that can observe the participant independently. A view
+that stops with the participant cannot report that participant's disappearance.
+The returned `observedAt` dates the snapshot; consumers must apply their own freshness
+limit before presenting a saved snapshot as current. This package does not start
+an observer daemon or promise continued observation after the caller exits.
+
+This handling deadline is an additive local projection field. It changes no Monitor
+Protocol wire object and supplies no work authorization or claim lease.
 
 Source adapters write a v1 health object containing `status` (`starting`, `healthy`,
 `retrying`, `failed`, `stopped`), `terminal`, `checked_at`, `last_success`,

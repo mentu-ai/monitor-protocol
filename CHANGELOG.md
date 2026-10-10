@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Optional handling expectations in workspace status expose overdue delivery
+  receipts independently of worker heartbeats. Deadlines use original delivery
+  timestamps; the passive view never acknowledges, retries, or schedules work.
 - Fresh session-bound MCP capability admission and a concrete Codex app-server adapter.
   Required tool contracts, semantic probes, runtime/config/workspace binding and deadlines
   are checked before work; cached catalogs or retained receipts do not admit execution.
