@@ -199,7 +199,7 @@ const service = new MonitorService(new MemoryStore("state.json"));
 
 ## Status
 
-Releases are tagged on GitHub and listed in the [changelog](CHANGELOG.md). The npm registry has 0.1.3; 0.2.0 was tagged but not published there, and 0.3.0 is published from the tarball that CI builds. The current release includes the session bridge described above. The objects and methods are stable enough to build on. Names such as the `ai.mentu` prefix may still change before version 1.0. Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
+Releases are tagged on GitHub and listed in the [changelog](CHANGELOG.md). Not every tag reached npm: 0.2.0 was tagged but never published there. A release reaches npm only as the tarball that CI built and tested. From 0.3.0, a release includes the session bridge described above. The objects and methods are stable enough to build on. Names such as the `ai.mentu` prefix may still change before version 1.0. Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 
