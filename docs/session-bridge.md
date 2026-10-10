@@ -4,20 +4,30 @@ The Monitor Protocol supplies the shared service: observations, provenance, subs
 durable cursors. A session bridge supplies delivery into a particular tool. A workspace can use
 several tools without changing its monitors or making one provider's session the workspace.
 
-The bridge in this checkout is a consumer of the existing protocol. It adds no wire methods or
-objects. It is not included in the published 0.2.0 package.
+The CLI bridge in this checkout is a consumer of the existing protocol. It adds no wire methods or
+objects. It is not included in the published 0.2.0 package. A separate
+[native Codex preview](../integrations/codex-native/README.md) moves the consumer into the rebuilt
+harness. The [shared terminal peers and routines guide](use-cases/shared-terminal-peers.md)
+explains how these delivery arrangements relate to a shared ticket workspace.
+
+This contract covers existing-session delivery. The separate
+[event-triggered routine launcher design](use-cases/event-triggered-routines.md) covers starting
+a configured process in response to an event. Its spawn policy, run ownership, and recovery
+belong to that consumer. The current bridge and native session monitor retain their live-session
+binding; neither silently switches to automatic launching when a session is unavailable.
 
 ## Capability matrix
 
 | Host | Read observations | Wake a live conversation | Session boundary |
 |---|---|---|---|
+| Rebuilt Codex native preview | Native MP HTTP consumer | Guarded idle admission inside the harness; live provider trial pending | Exact subscribed frontend ownership; disconnect, unsubscribe, interruption, thread stop, and explicit stop cancel the consumer |
 | Codex terminal with a native `queue` capability and tools under that terminal process | HTTP subscription through the bridge | The Codex adapter queues a reference into the bound session | Discovers its own live terminal ancestor and thread; never starts or resumes a session |
 | Codex terminal with tools hosted in a separate app server | HTTP or `watch` CLI | Current adapter refuses this process arrangement | Requires an exact thread-to-attended-frontend binding; use attended pull until supported |
 | Claude Code with its Monitor tool | `watch` CLI or MCP | The host's Monitor tool delivers output | The host owns the Monitor lifetime and rearming |
 | Other MCP clients | MCP tools | Depends on the host; no generic wake guarantee | Use an implemented host adapter or attended pull |
 | HTTP clients and ordinary terminals | HTTP or `watch` CLI | No model wake supplied by the transport | Pull, handle, and explicitly acknowledge |
 
-The Codex adapter supports macOS and Linux process inspection. Windows is refused. It checks
+The terminal queue adapter supports macOS and Linux process inspection. Windows is refused. It checks
 the executable of the running Codex process for the required `queue --thread --message`
 capability; finding an executable named `codex` on `PATH` is insufficient. A host version without
 that capability uses the pull workflow.

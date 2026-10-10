@@ -11,6 +11,10 @@ Its private journal currently supports macOS and Linux. The focused tests pass o
 macOS arm64; Linux has not been independently validated. Windows support is not implemented.
 This is a Mentu preview fork, not an upstream Codex release or an installable Codex plugin.
 
+For the workspace use cases, see [Shared terminal peers and event driven routines](../../docs/use-cases/shared-terminal-peers.md):
+how a ticket source, independent subscriptions, a human launcher, and native delivery work together,
+and how a proposed routine launcher can start work without a persistent agent conversation.
+
 ## Apply and build
 
 Requirements: Git, Bash, Python 3, Rust **1.95.0**, and the pinned Codex revision's

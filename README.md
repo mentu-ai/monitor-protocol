@@ -17,6 +17,11 @@ The Monitor Protocol gives them a shared service. A monitor exists independently
 
 Delivery into a live conversation is a separate adapter. Claude Code's Monitor tool can follow a subscription. The Codex terminal bridge in this checkout can notify an existing, human-opened session through its native queue. A client without a supported wake mechanism can pull when its user returns. The workspace and its observations survive the end of any one session.
 
+The same observations can also feed an operator-defined routine: start a script or agent job
+when work arrives, record its result, then exit. The [routine runner design](docs/use-cases/event-triggered-routines.md)
+also covers direct CLI invocation by a person, agent, or action, with prompts and context fetched
+from local or cloud sources. This second execution mode is not implemented in this checkout.
+
 ## What it does
 
 There are five parts, and each one is small.
@@ -73,6 +78,9 @@ Reading never moves the cursor. Only an acknowledgement does, and it never moves
 ## Use it from your workspace
 
 Give each participant its own subscription. Reading or waking one participant does not advance another participant's cursor. Connecting a client over [MCP](https://modelcontextprotocol.io) gives it tools; whether it can start a turn from a notification depends on its host.
+
+See [Shared terminal peers and event driven routines](docs/use-cases/shared-terminal-peers.md)
+for both execution modes, component responsibilities, lifetimes, and live-test evidence.
 
 | Client | How it receives work | What advances its cursor |
 | --- | --- | --- |

@@ -49,6 +49,23 @@ private observations, and personal session identifiers out of committed fixtures
 If a host cannot accept a notification into an existing session, document the pull workflow.
 Server conformance remains a separate gate from adapter compatibility.
 
+## Adding a routine launcher
+
+An event-triggered routine launcher is a separate consumer integration. Follow the
+[routine launcher design](docs/use-cases/event-triggered-routines.md). Document the operator's
+authorization, configured executable or provider, fresh-versus-resume policy, process ownership,
+limits, and lifetime. Include authenticated programmatic invocation and versioned prompt/context
+resolution when supplied by the integration. The local peer launcher's foreground-TTY requirement
+does not constrain a separate bounded routine CLI. Do not turn the existing-session bridge into
+an implicit launcher.
+
+Cover duplicate events, competing consumers, crashes around process creation, uncertain launch
+reconciliation, external-effect deduplication, cancellation, and receipt-before-ack. A process
+start is not proof of completed work. A live launch test must show that the event caused a new
+run without a manual start after that event; report this separately from existing-session wake.
+Routine configuration and run journals remain consumer concerns unless a contribution explicitly
+proposes a protocol change through the spec process above.
+
 ## Project structure
 
 ```

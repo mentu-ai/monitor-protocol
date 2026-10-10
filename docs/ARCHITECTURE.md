@@ -87,6 +87,15 @@ Stopping a bridge or ending its bound session stops that consumer process. It do
 the shared monitor or subscription. Their ordinary persistence, retention, and retirement rules
 still apply. See [Session bridge](session-bridge.md) for the adapter contract and failure cases.
 
+An event can also trigger an operator-defined routine that starts, records its result, and
+exits. This second mode uses a separate consumer with a launch journal and a declared process
+lifetime. It does not require a standing agent conversation or a native monitor tool inside
+each job. The [routine launcher design](use-cases/event-triggered-routines.md) describes the
+proposed integration, including duplicate events, uncertain launches, and receipt-before-ack.
+Automatic routine launching is not implemented in the reference server or session adapters.
+See [Shared terminal peers and event driven routines](use-cases/shared-terminal-peers.md)
+for the combined workspace use case and current implementation status.
+
 ## Single writer
 
 The reference server is one process with an in-memory log and optional JSON snapshots. A claim is
