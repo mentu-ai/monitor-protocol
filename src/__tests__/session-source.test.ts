@@ -94,7 +94,7 @@ test("session source uses the reference HTTP subscription without consuming unti
   await assert.rejects(s.pull(), permanent, "retirement must not trigger recreation");
 });
 
-test("session source detects a real retention gap even when the reference server returns HTTP 200", async t => {
+test("session source stops on a real retention gap reported by the reference server", async t => {
   const service = new MonitorService(new MemoryStore());
   service.createMonitor({ id: "retained", name: "Retained", horizon: "event", visibility: "public", capabilities: ["observe"] });
   const r = service.subscribe({ monitor: "retained", subscriber: "agent:test", capabilities: ["observe"] }, {});

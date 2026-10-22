@@ -22,7 +22,7 @@ knows only the base URL and creates its own monitor and subscriptions.
 | C14 | `monitors/pause`, `resume`, `retire` and `feeds/retire` each emit the corresponding `ai.mentu.monitor.*` observation, and a publish while paused is refused `409 UNAVAILABLE` and accepted again after resume | P10; Atrio silent `retire` defect |
 | C15 | `monitors/state` carries `as_of`, `covers_until`, `live{value,reason}`, `confidence{inputs{present,missing},gaps}`; a missing input is listed in `missing`, never defaulted | P3 |
 | C16 | A rejected input (bad signature or invalid vocabulary) is visible as an `ai.mentu.monitor.rejected` observation | P2 |
-| C17 | A pull with `cursor` below `retention_floor` is `410 CURSOR_EXPIRED` with `retention_floor` and `relist` | 04 |
+| C17 | A pull with `cursor` below `retention_floor` is `410 CURSOR_EXPIRED` with `retention_floor` and `relist`; so is a pull without `cursor` whose stored cursor is below it (`reset_policy: none`) | 04 |
 | C18 | A private monitor is absent from `monitors/list` without its bearer and present with it | P14 |
 | C19 | A subscription mute past `retire_after_mute_seconds` is retired and `…subscription_retired` is emitted; re-subscribing with its token keeps the cursor | P6 |
 | C20 | Re-sending an identical `ack` or `claim` returns the prior result | 04 idempotence |

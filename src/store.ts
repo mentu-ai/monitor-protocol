@@ -39,6 +39,8 @@ export interface Snapshot {
   seq: number; floor: number; events: LogEvent[]; monitors: MonitorRow[]; subscriptions: SubscriptionRow[]; leases: LeaseRow[];
   /** Subjects each monitor has published, by monitor id. Kept apart from the log so compaction does not forget them. */
   published?: Record<string, string[]>;
+  /** The highest seq compaction removed from each monitor's log, by monitor id. Without it a stored cursor's loss is unknown. */
+  dropped?: Record<string, number>;
 }
 
 /**
@@ -56,6 +58,10 @@ export class MemoryStore extends EventEmitter {
   events: LogEvent[] = [];
   /** Highest seq per monitor: `head` is the high-water mark of *its* log, never the server's (P5). */
   private heads = new Map<string, number>();
+  /** Highest seq per monitor that compaction removed: a stored cursor at or below it has missed observations. */
+  private dropped = new Map<string, number>();
+  /** False for a state compacted before 0.4.0, which kept no record of what compaction removed. */
+  private droppedKnown = true;
   monitors = new Map<string, MonitorRow>();
   subscriptions = new Map<string, SubscriptionRow>();
   leases = new Map<string, LeaseRow>();
@@ -131,10 +137,19 @@ export class MemoryStore extends EventEmitter {
   }
   compact(uptoSeq: number): number {
     const before = this.events.length;
+    for (const e of this.events) if (e.seq <= uptoSeq) this.dropped.set(e.monitor, Math.max(this.dropped.get(e.monitor) ?? 0, e.seq));
     this.events = this.events.filter(e => e.seq > uptoSeq);
     this.floor = Math.max(this.floor, uptoSeq + 1);
     this.persist();
     return before - this.events.length;
+  }
+  /**
+   * Whether compaction removed any of `monitor`'s rows at or after `cursor`. A state compacted before 0.4.0 has no
+   * record of that, so there the answer is yes when the cursor is below the floor and the monitor has published since.
+   */
+  lostSince(monitor: string, cursor: number): boolean {
+    if (this.droppedKnown) return (this.dropped.get(monitor) ?? -1) >= cursor;
+    return this.floor > Math.max(cursor, 1) && this.headOf(monitor) >= cursor;
   }
   /** Resolve when a row is appended or after `ms`. */
   waitAppend(ms: number): Promise<boolean> {
@@ -147,12 +162,16 @@ export class MemoryStore extends EventEmitter {
   snapshot(): Snapshot {
     return { seq: this.seq, floor: this.floor, events: this.events, monitors: [...this.monitors.values()],
       subscriptions: [...this.subscriptions.values()], leases: [...this.leases.values()],
-      published: Object.fromEntries([...this.published].map(([m, s]) => [m, [...s]])) };
+      published: Object.fromEntries([...this.published].map(([m, s]) => [m, [...s]])), dropped: Object.fromEntries(this.dropped) };
   }
   load(s: Snapshot): void {
     this.seq = s.seq; this.floor = s.floor ?? 0; this.events = s.events ?? [];
     this.heads = new Map();
     for (const e of this.events) this.heads.set(e.monitor, e.seq);
+    this.dropped = new Map(Object.entries(s.dropped ?? {}));
+    this.droppedKnown = s.dropped != null || !s.floor;
+    // A monitor whose rows were all compacted keeps its head: head never moves backwards (P5).
+    for (const [m, d] of this.dropped) if ((this.heads.get(m) ?? 0) < d) this.heads.set(m, d);
     this.monitors = new Map((s.monitors ?? []).map(m => [m.id, m]));
     this.subscriptions = new Map((s.subscriptions ?? []).map(x => [x.id, x]));
     this.leases = new Map((s.leases ?? []).map(l => [l.subject, l]));

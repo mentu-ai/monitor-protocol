@@ -69,6 +69,7 @@ export class HttpSubscriptionSource {
       discard();
       if (response.status === 408 || response.status === 429 || response.status >= 500)
         throw new BridgeRetryError(`MP temporarily unavailable (HTTP ${response.status})`);
+      if (response.status === 410) throw new Error("MP cursor is below the retention floor (HTTP 410); no cursor reset performed");
       throw new Error(`MP refused request (HTTP ${response.status}); no cursor reset performed`);
     }
     if (Number(response.headers.get("content-length")) > MAX_RESPONSE_BYTES) {

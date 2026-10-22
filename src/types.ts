@@ -79,7 +79,11 @@ export interface Lease {
 export interface PullResult {
   subscription: string; monitor: string; cursor: number; head: number; lag: number; retention_floor: number;
   next: number; redelivered: number; observations: Observation[];
+  /** Present when this pull moved a stored cursor that had lost observations, by the subscription's `reset_policy`. */
+  reset?: PullReset;
 }
+
+export interface PullReset { policy: "earliest" | "latest"; from: number; to: number; retention_floor: number }
 
 export interface ProtocolError { code: string; error: string; done?: unknown[]; [k: string]: unknown }
 

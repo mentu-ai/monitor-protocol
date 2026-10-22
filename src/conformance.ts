@@ -358,7 +358,10 @@ class Suite {
     const floorNow = (await this.pull(reader.id, reader.token, { limit: 1 })).body.retention_floor;
     if (compacted && floorNow > 1) {
       const ex = await this.pull(reader.id, reader.token, { cursor: 0 });
-      this.check("C17", ex.status === 410 && ex.body.code === "CURSOR_EXPIRED" && ex.body.retention_floor != null && ex.body.relist != null, `${ex.status} ${say(ex.body)}`);
+      const stale = await this.subscribe(mon.id, "stale-reader", ["observe"], { from: 0 });
+      const st = await this.pull(stale.id, stale.token);
+      const expired = (r: typeof ex) => r.status === 410 && r.body.code === "CURSOR_EXPIRED" && r.body.retention_floor != null && r.body.relist != null;
+      this.check("C17", expired(ex) && expired(st), `explicit ${ex.status} ${say(ex.body)}; stored ${st.status} ${say(st.body)}`);
     } else {
       this.record("C17", "SKIP", `server retains everything (retention_floor=${floorNow}); expiry path not exercisable`);
     }

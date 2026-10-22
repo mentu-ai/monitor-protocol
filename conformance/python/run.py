@@ -507,8 +507,11 @@ class Suite:
         floor = p0.get("retention_floor", 0)
         if floor and floor > 1:
             st, ex = self.pull(sid, stok, cursor=0)
-            self.check("C17", st == 410 and ex.get("code") == "CURSOR_EXPIRED" and "retention_floor" in ex and "relist" in ex,
-                       fail_note=f"{st} {ex}")
+            stale, stale_tok, _ = self.subscribe(mid, "stale-reader", **{"from": 0})
+            st2, ex2 = self.pull(stale, stale_tok)
+            expired = lambda s, b: s == 410 and b.get("code") == "CURSOR_EXPIRED" and "retention_floor" in b and "relist" in b
+            self.check("C17", expired(st, ex) and expired(st2, ex2),
+                       fail_note=f"explicit {st} {ex}; stored {st2} {ex2}")
         else:
             self.record("C17", "SKIP", f"server retains everything (retention_floor={floor}); expiry path not exercisable")
 

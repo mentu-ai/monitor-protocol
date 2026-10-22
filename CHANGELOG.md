@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+- **A stored cursor that lost observations is expired, as an explicit one is.** A pull without `cursor`, whose stored
+  cursor is at or below the highest row of its monitor that compaction removed, now returns `410 CURSOR_EXPIRED` with
+  `retention_floor`, `relist`, `cursor` and `stored: true`, and the cursor stays where it was. Before, the pull read on
+  from the retention floor and returned `200`, so the subscriber missed observations with no sign of it. This breaks a
+  client that relied on that `200`: it must relist from state, then `seek` to the floor.
+- **`reset_policy` now acts.** On such a pull, `earliest` moves the cursor to `retention_floor` and `latest` moves it to
+  `head + 1`. Each move is logged as `…subscribed{seek, reason}` and reported in the pull's new `reset` field
+  (`{policy, from, to, retention_floor}`). Before, the field was stored and never read.
+- **Compaction is remembered.** The store records, for each monitor, the highest seq that compaction removed, and keeps
+  it in its state file. A monitor whose rows were all compacted keeps its `head` across a restart (before, it fell to
+  0). A state compacted before 0.4.0 has no such record. There, a cursor below the floor counts as lost when its
+  monitor has published since.
+- **C17 checks the stored cursor too**, in both conformance runners. A server that answers a stored cursor below the
+  floor with `200` now fails C17.
+- The session bridge reports a `410` from `pull` as a retention gap, not as a generic refusal.
+
 ## v0.3.0
 
 - Owning-host session bindings. `bindClaudeSession` binds an attended Claude Code session by

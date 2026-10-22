@@ -107,7 +107,7 @@ Served by `monitors/state` and also emitted as an Observation of type `ai.mentu.
 | `filter` | Filter | no | Narrows; never renumbers. The cursor is the monitor's `seq`. |
 | `capabilities` | [enum] | yes | Subset of what the grant allows: `observe` · `react` · `act`. Enforced with `CAPABILITY_MISSING` (P7). |
 | `cursor` | int | yes | Committed position = **next `seq` to deliver**, inclusive (Kafka *committed position*). A pull returns observations with `seq >= cursor`; `next` in a pull result is the last delivered `seq` plus one, which is what a client acks. An implementation that treats the cursor as *last delivered* silently drops one observation per batch for any client written from this line. |
-| `reset_policy` | enum | no | `earliest` · `latest` · `none` (Kafka `auto.offset.reset` names) — what happens on `CURSOR_EXPIRED`. Default `none`: the subscriber must relist. |
+| `reset_policy` | enum | no | `earliest` · `latest` · `none` (Kafka `auto.offset.reset` names) — what happens on `CURSOR_EXPIRED`. Default `none`: the subscriber must relist. On a pull without `cursor` whose stored cursor lost observations to compaction, `none` refuses with `CURSOR_EXPIRED`; `earliest` moves the cursor to `retention_floor` and `latest` to `head + 1`, each logged as `…subscribed{seek, reason}` and reported in the pull's `reset`. |
 | `protocol` | enum | yes | `pull` (default) · `http` (push, Standard Webhooks headers) · `mcp` (wake-up through `subscriptions/listen`, delivery by pull). |
 | `sink`, `sinkcredential` | URI, object | for `http` | CE-Subscriptions names. |
 | `retire_after_mute_seconds` | int | no | Overrides the monitor's. |

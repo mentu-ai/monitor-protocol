@@ -6,7 +6,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { matches, intersectFilters, validateFilter } from "../filter.js";
 import { seqstr } from "../cloudevents.js";
 import type { LeaseRow, LogEvent, MemoryStore, MonitorRow, SubscriptionRow } from "../store.js";
-import type { AuthCtx, Filter, Lease, Monitor, Observation, ProtocolError, PullResult, Result, State, Subscription } from "../types.js";
+import type { AuthCtx, Filter, Lease, Monitor, Observation, ProtocolError, PullReset, PullResult, Result, State, Subscription } from "../types.js";
 import { HUMAN_PRINCIPAL_ONLY, CAPABILITIES, ORIGIN_TIER_CEILING, ORIGIN_VERIFICATION_CEILING, EXTENSION_ID, HORIZONS, HTTP_OF, ID_RE,
   ORIGINS, ORIGIN_OF_ACTOR_PREFIX, PROTOCOL_VERSION, PROTOCOLS, PROTO_PREFIX, PROTO_TYPES, PROTO_TYPE_LIST,
   RESET_POLICIES, SOURCE_KINDS, TIERS, TYPE_RE, MACHINE_CEILING, VERIFICATIONS, VISIBILITIES,
@@ -518,12 +518,25 @@ export class MonitorService {
     const wait = Math.min(this.opts.maxWaitSeconds, Math.max(0, q.wait ?? 0));
     const floor = this.store.retentionFloor();
     let replay: number | null = null;
+    let reset: PullReset | undefined;
     if (q.cursor != null) {
       replay = asSeq(q.cursor);
       if (replay == null) return err("INVALID", "cursor must be a non-negative integer", { cursor: q.cursor });
       if (floor && replay < floor)
         return err("CURSOR_EXPIRED", "cursor below retention floor; relist from state, then pull from the floor",
           { retention_floor: floor, relist: `monitors/state?id=${s.monitor}`, requested: replay });
+    } else if (this.store.lostSince(m.id, s.cursor)) {
+      // The stored cursor is checked as an explicit one is. Compaction removed rows of this monitor at or after it, so
+      // reading on from the floor would hide the loss. `reset_policy` decides what follows (spec 01, 04).
+      if (s.reset_policy !== "earliest" && s.reset_policy !== "latest")
+        return err("CURSOR_EXPIRED", "stored cursor below retention floor; relist from state, then seek to the floor",
+          { retention_floor: floor, relist: `monitors/state?id=${s.monitor}`, cursor: s.cursor, stored: true });
+      const to = s.reset_policy === "latest" ? this.store.headOf(m.id) + 1 : floor;
+      reset = { policy: s.reset_policy, from: s.cursor, to, retention_floor: floor };
+      this.log(m.id, PROTO_TYPES.subscribed, null, s.subscriber, this.originOf(s.subscriber),
+        { subscription: sid, subscriber: s.subscriber, seek: { from: s.cursor, to }, reason: `reset_policy ${s.reset_policy}: rows below the retention floor were removed` });
+      s.cursor = to;
+      this.store.persist();
     }
     const start = replay ?? s.cursor;   // inclusive: the next seq to deliver
     let f: Filter = s.filter;
@@ -548,7 +561,8 @@ export class MonitorService {
     }
     const head = this.store.headOf(s.monitor);
     return ok({ subscription: sid, monitor: s.monitor, cursor: s.cursor, head, lag: this.pending(m, s, f), retention_floor: floor,
-      next: obs.length ? Number(obs.at(-1)!.id) + 1 : head + 1, redelivered: obs.filter(o => o.redelivered).length, observations: obs },
+      next: obs.length ? Number(obs.at(-1)!.id) + 1 : head + 1, redelivered: obs.filter(o => o.redelivered).length, observations: obs,
+      ...(reset ? { reset } : {}) },
       200, { "X-MP-Batch-Type": "application/cloudevents-batch+json" });
   }
 

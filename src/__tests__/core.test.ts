@@ -114,6 +114,75 @@ test("a cursor below the retention floor is expired, not silently reset", async 
   assert.ok((r.body as { retention_floor: number }).retention_floor > 1);
 });
 
+test("a stored cursor below the retention floor is expired too, and stays where it was", async () => {
+  const { service, monitor, owner } = fixture();
+  const { sub, token } = subscribe(service, monitor.id, "agent:a");
+  for (let i = 0; i < 3; i++) service.monitorAction(monitor.id, "observations", { type: "t.reading", data: { i } }, { bearer: owner });
+  service.store.compact(service.store.head() - 1);
+  const r = await service.pull(sub.id, {}, { bearer: token });
+  assert.equal(r.status, 410);
+  const body = r.body as unknown as { code: string; retention_floor: number; relist: string; cursor: number; stored: boolean };
+  assert.equal(body.code, "CURSOR_EXPIRED");
+  assert.equal(body.stored, true);
+  assert.equal(body.cursor, 0);
+  assert.ok(body.retention_floor > 1 && body.relist.length > 0);
+  assert.equal(service.store.subscriptions.get(sub.id)!.cursor, 0);
+});
+
+test("reset_policy earliest and latest move a stored cursor that lost rows, and the pull says so", async () => {
+  for (const policy of ["earliest", "latest"] as const) {
+    const { service, monitor, owner } = fixture();
+    const { sub, token } = subscribe(service, monitor.id, "agent:a", ["observe"], { reset_policy: policy });
+    for (let i = 0; i < 3; i++) service.monitorAction(monitor.id, "observations", { type: "t.reading", data: { i } }, { bearer: owner });
+    service.store.compact(service.store.head() - 1);
+    const floor = service.store.retentionFloor(), head = service.store.headOf(monitor.id);
+    const r = await service.pull(sub.id, {}, { bearer: token });
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    const p = r.body as PullResult;
+    const to = policy === "earliest" ? floor : head + 1;
+    assert.deepEqual(p.reset, { policy, from: 0, to, retention_floor: floor });
+    assert.equal(p.cursor, to);
+    assert.ok(p.observations.every(o => Number(o.id) >= to));
+    const again = await service.pull(sub.id, {}, { bearer: token });
+    assert.equal((again.body as PullResult).reset, undefined);
+  }
+});
+
+test("a caught-up subscriber is not expired by compaction of another monitor's rows", async () => {
+  const { service, monitor, owner } = fixture();
+  const { sub, token } = subscribe(service, monitor.id, "agent:quiet");
+  service.monitorAction(monitor.id, "observations", { type: "t.reading", data: {} }, { bearer: owner });
+  const first = (await service.pull(sub.id, {}, { bearer: token })).body as PullResult;
+  assert.equal(service.subAction(sub.id, "ack", { cursor: first.next }, { bearer: token }).status, 200);
+  const other = service.createMonitor({ id: "m2", name: "m2", horizon: "minute", capabilities: ["observe"], visibility: "public", types: ["t.reading"] });
+  const otherOwner = (other.body as { owner_token: string }).owner_token;
+  for (let i = 0; i < 5; i++) service.monitorAction("m2", "observations", { type: "t.reading", data: { i } }, { bearer: otherOwner });
+  service.store.compact(service.store.head() - 1);
+  assert.ok(service.store.retentionFloor() > first.next);
+  const r = await service.pull(sub.id, {}, { bearer: token });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal((r.body as PullResult).reset, undefined);
+});
+
+test("what compaction removed survives a restart: the head stays and the loss is still reported", async () => {
+  const { service, monitor, owner } = fixture();
+  const { sub, token } = subscribe(service, monitor.id, "agent:a");
+  for (let i = 0; i < 3; i++) service.monitorAction(monitor.id, "observations", { type: "t.reading", data: { i } }, { bearer: owner });
+  const head = service.store.headOf(monitor.id);
+  service.store.compact(service.store.head());
+  const store = new MemoryStore();
+  store.load(JSON.parse(JSON.stringify(service.store.snapshot())));
+  assert.equal(store.headOf(monitor.id), head);
+  const restarted = new MonitorService(store);
+  assert.equal((await restarted.pull(sub.id, {}, { bearer: token })).status, 410);
+  // a state compacted before 0.4.0 has no record of what was removed: a cursor below the floor counts as lost
+  const legacy = JSON.parse(JSON.stringify(service.store.snapshot()));
+  delete legacy.dropped;
+  const old = new MemoryStore();
+  old.load(legacy);
+  assert.equal(old.lostSince(monitor.id, 0), true);
+});
+
 test("a mute subscription is retired with a will event and keeps its cursor", async () => {
   const { service, monitor, owner } = fixture();
   const { sub, token } = subscribe(service, monitor.id, "agent:mute", ["observe"], { retire_after_mute_seconds: 1 });
