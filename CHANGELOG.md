@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.4.0
 
 - **A stored cursor that lost observations is expired, as an explicit one is.** A pull without `cursor`, whose stored
   cursor is at or below the highest row of its monitor that compaction removed, now returns `410 CURSOR_EXPIRED` with
